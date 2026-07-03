@@ -79,7 +79,8 @@ public class ExplorerView extends ThemeColorSwipeRefreshLayout implements SwipeR
     //category是类别，也即"文件", "文件夹"那两个
     protected static final int VIEW_TYPE_CATEGORY = 2;
 
-    private static final int positionOfCategoryDir = 0;
+    //列表展示顺序：文件类别在顶部（位置0），文件夹类别在文件之后
+    private static final int positionOfCategoryFile = 0;
 
     private ExplorerItemList mExplorerItemList = new ExplorerItemList();
     private RecyclerView mExplorerItemListView;
@@ -226,8 +227,8 @@ public class ExplorerView extends ThemeColorSwipeRefreshLayout implements SwipeR
         manager.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
             @Override
             public int getSpanSize(int position) {
-                //For directories
-                if (position > positionOfCategoryDir && position < positionOfCategoryFile()) {
+                //文件夹项每行可排多个（mDirectorySpanSize），文件与类别标题占满整行
+                if (position > positionOfCategoryDir()) {
                     return mDirectorySpanSize;
                 }
                 //For files and category
@@ -237,10 +238,10 @@ public class ExplorerView extends ThemeColorSwipeRefreshLayout implements SwipeR
         mExplorerItemListView.setLayoutManager(manager);
     }
 
-    private int positionOfCategoryFile() {
-        if (mCurrentPageState.dirsCollapsed)
+    private int positionOfCategoryDir() {
+        if (mCurrentPageState.filesCollapsed)
             return 1;
-        return mExplorerItemList.groupCount() + 1;
+        return mExplorerItemList.itemCount() + 1;
     }
 
     @SuppressLint("CheckResult")
@@ -448,36 +449,41 @@ public class ExplorerView extends ThemeColorSwipeRefreshLayout implements SwipeR
         @SuppressWarnings("unchecked")
         @Override
         public void onBindViewHolder(BindableViewHolder<?> holder, int position) {
-            int positionOfCategoryFile = positionOfCategoryFile();
+            int positionOfCategoryDir = positionOfCategoryDir();
             BindableViewHolder bindableViewHolder = (BindableViewHolder) holder;
-            if (position == positionOfCategoryDir || position == positionOfCategoryFile) {
+            if (position == positionOfCategoryFile || position == positionOfCategoryDir) {
+                //类别标题：参数为是否"文件夹"类别
                 bindableViewHolder.bind(position == positionOfCategoryDir, position);
                 return;
             }
-            if (position < positionOfCategoryFile) {
-                bindableViewHolder.bind(mExplorerItemList.getItemGroup(position - 1), position);
+            if (position < positionOfCategoryDir) {
+                //文件区：位置 1..itemCount
+                bindableViewHolder.bind(mExplorerItemList.getItem(position - positionOfCategoryFile - 1), position);
                 return;
             }
-            bindableViewHolder.bind(mExplorerItemList.getItem(position - positionOfCategoryFile - 1), position);
+            //文件夹区：位置 positionOfCategoryDir+1 起
+            bindableViewHolder.bind(mExplorerItemList.getItemGroup(position - positionOfCategoryDir - 1), position);
         }
 
         @Override
         public int getItemViewType(int position) {
-            int positionOfCategoryFile = positionOfCategoryFile();
-            if (position == positionOfCategoryDir || position == positionOfCategoryFile) {
+            int positionOfCategoryDir = positionOfCategoryDir();
+            if (position == positionOfCategoryFile || position == positionOfCategoryDir) {
                 return VIEW_TYPE_CATEGORY;
-            } else if (position < positionOfCategoryFile) {
-                return VIEW_TYPE_PAGE;
-            } else {
+            } else if (position < positionOfCategoryDir) {
                 return VIEW_TYPE_ITEM;
+            } else {
+                return VIEW_TYPE_PAGE;
             }
         }
 
         int getItemPosition(ExplorerItem item, int i) {
             if (item instanceof ExplorerPage) {
-                return i + positionOfCategoryDir + 1;
+                //文件夹排在文件之后
+                return i + positionOfCategoryDir() + 1;
             }
-            return i + positionOfCategoryFile() + 1;
+            //文件排在顶部类别之后
+            return i + positionOfCategoryFile + 1;
         }
 
         public void notifyItemChanged(ExplorerItem item, int i) {

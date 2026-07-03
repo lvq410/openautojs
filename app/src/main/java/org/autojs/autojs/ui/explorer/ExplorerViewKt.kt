@@ -200,18 +200,17 @@ open class ExplorerViewKt : ThemeColorSwipeRefreshLayout, OnRefreshListener,
         manager.setDebugInfo("ExplorerView")
         manager.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
             override fun getSpanSize(position: Int): Int {
-                //For directories
-                return if (position > positionOfCategoryDir && position < positionOfCategoryFile()) {
+                //文件夹项每行可排多个（directorySpanSize1），文件与类别标题占满整行
+                return if (position > positionOfCategoryDir()) {
                     directorySpanSize1
                 } else 2
-                //For files and category
             }
         }
         explorerItemListView!!.layoutManager = manager
     }
 
-    private fun positionOfCategoryFile(): Int {
-        return if (currentPageState.dirsCollapsed) 1 else explorerItemList.groupCount() + 1
+    private fun positionOfCategoryDir(): Int {
+        return if (currentPageState.filesCollapsed) 1 else explorerItemList.itemCount() + 1
     }
 
     @SuppressLint("CheckResult", "NotifyDataSetChanged")
@@ -418,36 +417,40 @@ open class ExplorerViewKt : ThemeColorSwipeRefreshLayout, OnRefreshListener,
         }
 
         override fun onBindViewHolder(holder: BindableViewHolder<Any>, position: Int) {
-            val positionOfCategoryFile = positionOfCategoryFile()
-            if (position == positionOfCategoryDir || position == positionOfCategoryFile) {
+            val positionOfCategoryDir = positionOfCategoryDir()
+            if (position == positionOfCategoryFile || position == positionOfCategoryDir) {
+                //类别标题：参数为是否"文件夹"类别
                 holder.bind(position == positionOfCategoryDir, position)
                 return
             }
-            if (position < positionOfCategoryFile) {
-                holder.bind(explorerItemList.getItemGroup(position - 1), position)
+            if (position < positionOfCategoryDir) {
+                //文件区：位置 1..itemCount
+                holder.bind(
+                    explorerItemList.getItem(position - positionOfCategoryFile - 1),
+                    position
+                )
                 return
             }
-            holder.bind(
-                explorerItemList.getItem(position - positionOfCategoryFile - 1),
-                position
-            )
+            //文件夹区：位置 positionOfCategoryDir+1 起
+            holder.bind(explorerItemList.getItemGroup(position - positionOfCategoryDir - 1), position)
         }
 
         override fun getItemViewType(position: Int): Int {
-            val positionOfCategoryFile = positionOfCategoryFile()
-            return if (position == positionOfCategoryDir || position == positionOfCategoryFile) {
+            val positionOfCategoryDir = positionOfCategoryDir()
+            return if (position == positionOfCategoryFile || position == positionOfCategoryDir) {
                 VIEW_TYPE_CATEGORY
-            } else if (position < positionOfCategoryFile) {
-                VIEW_TYPE_PAGE
-            } else {
+            } else if (position < positionOfCategoryDir) {
                 VIEW_TYPE_ITEM
+            } else {
+                VIEW_TYPE_PAGE
             }
         }
 
         fun getItemPosition(item: ExplorerItem?, i: Int): Int {
             return if (item is ExplorerPage) {
-                i + positionOfCategoryDir + 1
-            } else i + positionOfCategoryFile() + 1
+                //文件夹排在文件之后
+                i + positionOfCategoryDir() + 1
+            } else i + positionOfCategoryFile + 1
         }
 
         fun notifyItemChanged(item: ExplorerItem?, i: Int) {
@@ -709,7 +712,9 @@ open class ExplorerViewKt : ThemeColorSwipeRefreshLayout, OnRefreshListener,
 
         //category是类别，也即"文件", "文件夹"那两个
         protected const val VIEW_TYPE_CATEGORY = 2
-        private const val positionOfCategoryDir = 0
+
+        //列表展示顺序：文件类别在顶部（位置0），文件夹类别在文件之后
+        private const val positionOfCategoryFile = 0
     }
 
     override fun onGlobalFocusChanged(oldView: View, newView: View) {

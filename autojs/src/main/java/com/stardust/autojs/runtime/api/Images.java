@@ -23,6 +23,7 @@ import com.stardust.autojs.core.image.ImageWrapper;
 import com.stardust.autojs.core.image.TemplateMatching;
 import com.stardust.autojs.core.image.capture.ScreenCaptureRequester;
 import com.stardust.autojs.core.image.capture.ScreenCapturer;
+import com.stardust.autojs.runtime.exception.ScriptException;
 import com.stardust.autojs.core.opencv.Mat;
 import com.stardust.autojs.core.opencv.OpenCVHelper;
 import com.stardust.autojs.core.ui.inflater.util.Drawables;
@@ -56,7 +57,6 @@ public class Images {
 
     private ScriptRuntime mScriptRuntime;
     private ScreenCaptureRequester mScreenCaptureRequester;
-    private ScreenCapturer mScreenCapturer;
     private Context mContext;
     private Image mPreCapture;
     private ImageWrapper mPreCaptureImage;
@@ -75,19 +75,27 @@ public class Images {
     }
 
     @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
-    public ScriptPromiseAdapter requestScreenCapture(int orientation) {
+    public Object requestScreenCapture(int orientation) {
         ScriptRuntime.requiresApi(21);
-        ScriptPromiseAdapter promiseAdapter = new ScriptPromiseAdapter();
-        if (mScreenCapturer != null) {
-            mScreenCapturer.setOrientation(orientation);
-            promiseAdapter.resolve(true);
-            return promiseAdapter;
+        ScreenCapturer capturer = mScreenCaptureRequester.getScreenCapturer();
+        if (capturer != null) {
+            //检测projection是否存活（MIUI上被其他app抢占后onStop不触发，需主动检测）
+            if (capturer.checkAlive()) {
+                capturer.setOrientation(orientation);
+                return Boolean.TRUE;
+            }
+            //已失效，清理后返回false，脚本会提示"没有授予屏幕截图权限"并退出，下次启动重新申请
+            capturer.release();
+            mScreenCaptureRequester.setScreenCapturer(null);
+            return Boolean.FALSE;
         }
+        ScriptPromiseAdapter promiseAdapter = new ScriptPromiseAdapter();
         Looper servantLooper = mScriptRuntime.loopers.getServantLooper();
         mScreenCaptureRequester.setOnActivityResultCallback((result, data) -> {
             if (result == Activity.RESULT_OK) {
-                mScreenCapturer = new ScreenCapturer(mContext, data, orientation, ScreenMetrics.getDeviceScreenDensity(),
+                ScreenCapturer newCapturer = new ScreenCapturer(mContext, data, orientation, ScreenMetrics.getDeviceScreenDensity(),
                         new Handler(servantLooper));
+                mScreenCaptureRequester.setScreenCapturer(newCapturer);
                 promiseAdapter.resolve(true);
             } else {
                 promiseAdapter.resolve(false);
@@ -100,10 +108,24 @@ public class Images {
     @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
     public synchronized ImageWrapper captureScreen() {
         ScriptRuntime.requiresApi(21);
-        if (mScreenCapturer == null) {
+        ScreenCapturer capturer = mScreenCaptureRequester.getScreenCapturer();
+        if (capturer == null) {
             throw new SecurityException("No screen capture permission");
         }
-        Image capture = mScreenCapturer.capture();
+        //按需获取可能返回null（首帧未就绪），短暂重试
+        Image capture = null;
+        for (int i = 0; i < 20 && capture == null; i++) {
+            capture = capturer.capture();
+            if (capture == null) {
+                try { Thread.sleep(50); } catch (InterruptedException e) { break; }
+            }
+        }
+        if (capture == null) {
+            //截图超时，MediaProjection可能已被系统作废（其他app获取了截屏权限），清掉共享的ScreenCapturer
+            capturer.release();
+            mScreenCaptureRequester.setScreenCapturer(null);
+            throw new ScriptException("Screen capture timeout");
+        }
         if (capture == mPreCapture && mPreCaptureImage != null) {
             return mPreCaptureImage;
         }
@@ -264,9 +286,13 @@ public class Images {
     }
 
     public void releaseScreenCapturer() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && mScreenCapturer != null) {
-            mScreenCapturer.release();
+        // 不释放共享的 ScreenCapturer，因为其他引擎可能还在使用
+        // 只清理本引擎的截图缓存
+        if (mPreCaptureImage != null) {
+            mPreCaptureImage.recycle();
+            mPreCaptureImage = null;
         }
+        mPreCapture = null;
     }
 
     public Point findImage(ImageWrapper image, ImageWrapper template) {

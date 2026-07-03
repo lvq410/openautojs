@@ -154,6 +154,8 @@ open class RhinoJavaScriptEngine(private val mAndroidContext: android.content.Co
         override fun wrap(cx: Context, scope: Scriptable, obj: Any?, staticType: Class<*>?): Any? {
             return when {
                 obj is String -> runtime.bridges.toString(obj.toString())
+                obj is Boolean -> obj //直接返回，避免被包装成NativeJavaObject导致JS中 === true/false 失败
+                obj is Number -> obj
                 staticType == UiObjectCollection::class.java -> runtime.bridges.asArray(obj)
                 else -> super.wrap(cx, scope, obj, staticType)
             }

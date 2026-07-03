@@ -30,10 +30,26 @@ public interface ScreenCaptureRequester {
 
     void recycle();
 
+    //共享的 ScreenCapturer，跨引擎复用截屏权限（对齐 AutoX.js 的 ScreenCaptureManager）
+    ScreenCapturer getScreenCapturer();
+
+    void setScreenCapturer(ScreenCapturer capturer);
+
     abstract class AbstractScreenCaptureRequester implements ScreenCaptureRequester {
 
         protected Callback mCallback;
         protected Intent mResult;
+        protected volatile ScreenCapturer mScreenCapturer;
+
+        @Override
+        public ScreenCapturer getScreenCapturer() {
+            return mScreenCapturer;
+        }
+
+        @Override
+        public void setScreenCapturer(ScreenCapturer capturer) {
+            mScreenCapturer = capturer;
+        }
 
         @Override
         public void setOnActivityResultCallback(Callback callback) {

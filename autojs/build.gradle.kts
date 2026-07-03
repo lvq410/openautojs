@@ -53,8 +53,8 @@ dependencies {
     api("com.squareup.okhttp3:okhttp:4.10.0")
     // JDeferred
     api("org.jdeferred:jdeferred-android-aar:1.2.6")
-    // RootShell
-    api("com.github.Stericson:RootShell:1.6")
+    // RootShell（JitPack 的 com.github.Stericson:RootShell:1.6 已 404，改用本地 AAR 模块）
+    api(project(path = ":LocalRepo:RootShell"))
     // Gson
     api("com.google.code.gson:gson:2.10")
     // log4j

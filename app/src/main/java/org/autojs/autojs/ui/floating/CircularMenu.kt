@@ -64,9 +64,16 @@ class CircularMenu(context: Context?) : Recorder.OnStateChangedListener, Capture
             } else if (mWindow?.isExpanded == true) {
                 mWindow?.collapse()
             } else {
-                mCaptureDeferred = DeferredObject()
-                AutoJs.getInstance().layoutInspector.captureCurrentWindow()
-                mWindow?.expand()
+                //悬浮小球默认点击行为可在侧边栏配置：展开二级菜单（默认）/打开脚本清单/停止所有脚本
+                when (Pref.getFloatingBallDefaultAction()) {
+                    Pref.FLOATING_BALL_ACTION_SCRIPT_LIST -> showScriptList()
+                    Pref.FLOATING_BALL_ACTION_STOP_ALL -> stopAllScripts()
+                    else -> {
+                        mCaptureDeferred = DeferredObject()
+                        AutoJs.getInstance().layoutInspector.captureCurrentWindow()
+                        mWindow?.expand()
+                    }
+                }
             }
         }
     }

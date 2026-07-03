@@ -22,6 +22,7 @@ public class Pref {
     private static final String KEY_SERVER_ADDRESS = "KEY_SERVER_ADDRESS";
     private static final String KEY_SHOULD_SHOW_ANNUNCIATION = "KEY_SHOULD_SHOW_ANNUNCIATION";
     private static final String KEY_FLOATING_MENU_SHOWN = "KEY_FLOATING_MENU_SHOWN";
+    private static final String KEY_FLOATING_BALL_ACTION = "KEY_FLOATING_BALL_ACTION";
     private static final String KEY_EDITOR_THEME = "editor.theme";
     private static final String KEY_EDITOR_TEXT_SIZE = "editor.textSize";
 
@@ -146,6 +147,19 @@ public class Pref {
 
     public static void setFloatingMenuShown(boolean checked) {
         def().edit().putBoolean(KEY_FLOATING_MENU_SHOWN, checked).apply();
+    }
+
+    //悬浮小球默认点击行为：0=展开二级菜单（默认），1=打开脚本清单，2=停止所有脚本
+    public static final int FLOATING_BALL_ACTION_MENU = 0;
+    public static final int FLOATING_BALL_ACTION_SCRIPT_LIST = 1;
+    public static final int FLOATING_BALL_ACTION_STOP_ALL = 2;
+
+    public static int getFloatingBallDefaultAction() {
+        return def().getInt(KEY_FLOATING_BALL_ACTION, FLOATING_BALL_ACTION_MENU);
+    }
+
+    public static void setFloatingBallDefaultAction(int action) {
+        def().edit().putInt(KEY_FLOATING_BALL_ACTION, action).apply();
     }
 
     public static String getCurrentTheme() {

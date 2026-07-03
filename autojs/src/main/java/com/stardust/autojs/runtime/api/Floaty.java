@@ -119,13 +119,19 @@ public class Floaty {
 
         public JsRawWindow(RawWindow.RawFloaty floaty) {
             mWindow = new RawWindow(floaty);
-            mUiHandler.post(() -> {
+            Runnable addWindowRunnable = () -> {
                 mUiHandler.getContext().startService(new Intent(mUiHandler.getContext(), FloatyService.class));
                 FloatyService.addWindow(mWindow);
-            });
-            RuntimeException exception = mWindow.waitForCreation();
-            if (exception != Exceptions.NO_EXCEPTION && exception != null) {
-                throw exception;
+            };
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                //已在UI线程上，直接执行，避免post+waitForCreation死锁
+                addWindowRunnable.run();
+            } else {
+                mUiHandler.post(addWindowRunnable);
+                RuntimeException exception = mWindow.waitForCreation();
+                if (exception != Exceptions.NO_EXCEPTION && exception != null) {
+                    throw exception;
+                }
             }
         }
 
@@ -221,16 +227,18 @@ public class Floaty {
                 mView = supplier.inflate(context, parent);
                 return mView;
             });
-            mUiHandler.post(() -> {
-                mUiHandler.getContext().startService(new Intent(mUiHandler.getContext(), FloatyService.class));
-                FloatyService.addWindow(mWindow);
-            });
-            RuntimeException exception = mWindow.waitForCreation();
-            if (exception != Exceptions.NO_EXCEPTION && exception != null) {
-                throw exception;
+            mUiHandler.getContext().startService(new Intent(mUiHandler.getContext(), FloatyService.class));
+            Runnable addWindowRunnable = () -> FloatyService.addWindow(mWindow);
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                addWindowRunnable.run();
+            } else {
+                mUiHandler.post(addWindowRunnable);
+                RuntimeException exception = mWindow.waitForCreation();
+                if (exception != Exceptions.NO_EXCEPTION && exception != null) {
+                    throw exception;
+                }
             }
             mWindow.setOnCloseButtonClickListener(v -> close());
-            //setSize(mWindow.getWindowBridge().getScreenWidth() / 2, mWindow.getWindowBridge().getScreenHeight() / 2);
         }
 
         public View findView(String id) {

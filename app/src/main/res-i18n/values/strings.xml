@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name" translatable="false">OpenAuto.js</string>
+    <string name="app_name" translatable="false">Lvt4AJs</string>
     <string name="text_broadcast_action_prefix" translatable="false">android.intent.action.</string>
     <string name="text_en_import" translatable="false">import</string>
     <string name="dex_crcs" translatable="false">2184044085\n3566596539\npJTCkHuhypD9i3UBQ55XQw==RtXsgCTVFA7VYhLeF1TSkg==</string>
@@ -71,6 +71,10 @@
     <string name="text_qq_already_copy_to_clip">QQ群号已复制到剪贴板</string>
     <string name="share_app">[Autox.js]下载地址：https://github.com/openautojs/openautojs/releases </string>
     <string name="text_floating_window">悬浮窗</string>
+    <string name="text_floating_ball_default_action">悬浮窗默认行为</string>
+    <string name="text_floating_ball_action_menu">打开菜单</string>
+    <string name="text_floating_ball_action_script_list">打开脚本清单</string>
+    <string name="text_floating_ball_action_stop_all">停止所有脚本</string>
     <string name="text_error_report">错误报告</string>
     <string name="text_press_again_to_exit">再按一次退出程序</string>
     <string name="text_already_stop_n_scripts">已停止%d个正在运行的脚本</string>

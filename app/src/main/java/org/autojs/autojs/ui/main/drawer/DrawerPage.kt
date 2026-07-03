@@ -112,6 +112,7 @@ fun DrawerPage(modifier: Modifier) {
 
             Text(text = stringResource(id = R.string.text_script_record))
             FloatingWindowSwitch()
+            FloatingBallDefaultActionItem()
             VolumeDownControlSwitch()
             AutoBackupSwitch()
 
@@ -608,6 +609,52 @@ private fun FloatingWindowSwitch() {
             Pref.setFloatingMenuShown(isFloatingWindowShowing)
         }
     )
+}
+
+@Composable
+private fun FloatingBallDefaultActionItem() {
+    //悬浮小球默认点击行为的可切换配置：展开菜单（默认）/打开脚本清单/停止所有脚本
+    val actions = listOf(
+        Pref.FLOATING_BALL_ACTION_MENU to stringResource(id = R.string.text_floating_ball_action_menu),
+        Pref.FLOATING_BALL_ACTION_SCRIPT_LIST to stringResource(id = R.string.text_floating_ball_action_script_list),
+        Pref.FLOATING_BALL_ACTION_STOP_ALL to stringResource(id = R.string.text_floating_ball_action_stop_all)
+    )
+    var selected by remember { mutableStateOf(Pref.getFloatingBallDefaultAction()) }
+    var expanded by remember { mutableStateOf(false) }
+    val currentLabel = actions.firstOrNull { it.first == selected }?.second ?: actions[0].second
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { expanded = true },
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(modifier = Modifier.padding(8.dp)) {
+            MyIcon(painterResource(id = R.drawable.ic_overlay), null)
+        }
+        Box(modifier = Modifier.weight(1f)) {
+            Text(text = stringResource(id = R.string.text_floating_ball_default_action))
+        }
+        Box {
+            Text(
+                text = currentLabel,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(8.dp)
+            )
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                actions.forEach { (value, label) ->
+                    DropdownMenuItem(
+                        text = { Text(text = label) },
+                        onClick = {
+                            selected = value
+                            Pref.setFloatingBallDefaultAction(value)
+                            expanded = false
+                        }
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable

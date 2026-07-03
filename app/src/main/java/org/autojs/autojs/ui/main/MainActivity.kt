@@ -111,7 +111,6 @@ class MainActivity : FragmentActivity() {
                     LaunchedEffect(key1 = Unit, block = {
                         permission.launchMultiplePermissionRequest()
                     })
-                    Text(text = "test")
                     MainPage(
                         activity = this,
                         scriptListFragment = scriptListFragment,
@@ -202,7 +201,8 @@ fun MainPage(
             Surface(color = MaterialTheme.colorScheme.surface) {
                 DrawerPage(
                     modifier = Modifier
-                        .width(width = width - 50.dp)
+                        //抽屉宽度封顶为 Material 标准的 360dp，避免横屏下用整屏宽（width-50dp）导致抽屉过宽、右侧遮罩过窄而显得界面裂开
+                        .width(width = minOf(width - 50.dp, 360.dp))
                         .padding(16.dp)
                 )
             }

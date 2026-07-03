@@ -162,7 +162,10 @@ module.exports = function (runtime, scope) {
             if (landscape === false) {
                 orientation = ScreenCapturer.ORIENTATION_PORTRAIT;
             }
-            return ResultAdapter.wait(javaImages.requestScreenCapture(orientation));
+            //已有共享capturer时Java端直接返回Boolean（绕过Promise避免Promise.wait死锁），否则返回ScriptPromiseAdapter
+            var result = javaImages.requestScreenCapture(orientation);
+            if (result === true || result === false) return result;
+            return ResultAdapter.wait(result);
         }
 
         images.save = function (img, path, format, quality) {

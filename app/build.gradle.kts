@@ -31,7 +31,7 @@ android {
     compileSdk = versions.compile
 
     defaultConfig {
-        applicationId = "org.openautojs.autojs"
+        applicationId = "com.lvt4j.ajs"
         minSdk = versions.mini
         targetSdk = versions.target
         versionCode = versions.appVersionCode
@@ -41,7 +41,8 @@ android {
         buildConfigField("boolean", "isMarket", "false")
         javaCompileOptions {
             annotationProcessorOptions {
-                arguments["resourcePackageName"] = applicationId.toString()
+                //必须固定为 manifest package（org.openautojs.autojs），不能跟随 applicationId，否则 kapt 找不到 R 类
+                arguments["resourcePackageName"] = "org.openautojs.autojs"
                 arguments["androidManifestFile"] = "$projectDir/src/main/AndroidManifest.xml"
             }
         }
