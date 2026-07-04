@@ -78,6 +78,14 @@ class CircularMenu(context: Context?) : Recorder.OnStateChangedListener, Capture
         }
     }
 
+    /**
+     * 仅切换小球可见性，不销毁/重建实例，保留贴边位置与半透明状态。
+     * 供脚本运行时临时隐藏、结束后还原使用。
+     */
+    fun setVisible(visible: Boolean) {
+        mWindow?.setActionViewVisible(visible)
+    }
+
     private fun initFloaty() {
         mWindow = CircularMenuWindow(mContext, object : CircularMenuFloaty {
             override fun inflateActionView(

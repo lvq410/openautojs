@@ -91,21 +91,22 @@ module.exports = function(runtime, global){
     }
 
     // 隐藏自带悬浮小球，返回隐藏前是否处于显示状态（供脚本记录、结束后还原）
+    // 注意：仅切换可见性、不销毁实例，从而保留贴边位置与半透明状态（销毁+重建会使其复位到居中且不透明）
     floaty.hideCircularMenu = function(){
         var mgr = floatyWindowManger();
         if (!mgr) return false;
         var showing = mgr.isCircularMenuShowing();
         if (showing) {
-            runOnUiSync(function(){ mgr.hideCircularMenu(); });
+            runOnUiSync(function(){ mgr.setCircularMenuVisible(false); });
         }
         return showing;
     }
 
-    // 显示自带悬浮小球（已显示则不重复创建），返回接口是否可用
+    // 显示（还原）自带悬浮小球，返回接口是否可用
     floaty.showCircularMenu = function(){
         var mgr = floatyWindowManger();
         if (!mgr) return false;
-        runOnUiSync(function(){ mgr.showCircularMenuIfNeeded(); });
+        runOnUiSync(function(){ mgr.setCircularMenuVisible(true); });
         return true;
     }
 

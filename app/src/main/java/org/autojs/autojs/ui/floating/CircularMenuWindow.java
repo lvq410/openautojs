@@ -180,6 +180,19 @@ public class CircularMenuWindow extends FloatyWindow {
         return mCircularActionMenu.isExpanded();
     }
 
+    /**
+     * 仅切换小球视图的可见性，不销毁窗口，从而保留贴边位置与透明度状态。
+     * 供脚本运行时临时隐藏、结束后还原使用（区别于 close() 的销毁）。
+     */
+    public void setActionViewVisible(boolean visible) {
+        if (mCircularActionView != null) {
+            mCircularActionView.setVisibility(visible ? View.VISIBLE : View.GONE);
+        }
+        if (!visible && mCircularActionMenu != null) {
+            mCircularActionMenu.setVisibility(View.GONE); //隐藏时确保展开的二级菜单也收起不可见
+        }
+    }
+
     private void setMenuPositionAtActionView() {
         int y = mActionViewWindowBridge.getY() - mCircularActionMenu.getMeasuredHeight() / 2 + mCircularActionView.getMeasuredHeight() / 2;
         int x;

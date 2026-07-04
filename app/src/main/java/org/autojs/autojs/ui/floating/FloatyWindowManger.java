@@ -68,6 +68,18 @@ public class FloatyWindowManger {
         sCircularMenu = null;
     }
 
+    /**
+     * 仅切换小球可见性（不创建/销毁实例），保留贴边位置与半透明状态。
+     * 供脚本运行时临时隐藏、结束后还原使用；实例不存在（开关关闭）时为空操作。
+     */
+    public static void setCircularMenuVisible(boolean visible) {
+        if (sCircularMenu == null)
+            return;
+        CircularMenu menu = sCircularMenu.get();
+        if (menu != null)
+            menu.setVisible(visible);
+    }
+
     public static int getWindowType() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             return WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
