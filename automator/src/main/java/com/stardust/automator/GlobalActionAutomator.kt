@@ -289,7 +289,7 @@ class GlobalActionAutomator(private val mHandler: Handler?, private val serviceP
     }
 
     private fun scaleY(y: Int): Int {
-        return mScreenMetrics?.scaleX(y) ?: y
+        return mScreenMetrics?.scaleY(y) ?: y
     }
 
     @RequiresApi(api = Build.VERSION_CODES.N)
