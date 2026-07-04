@@ -99,6 +99,33 @@ applicationId 和源码包路径是独立的，改包名只需改 `applicationId
 - **文件**: `core/image/capture/ScreenCapturer.java`, `runtime/api/Images.java`；脚本侧 `common.js`（`requestCapturePermission`/`captureScreenx`）
 - **说明**: 唯一未解的边角是「抢占后第一次截图会拿到一帧旧屏，第二次才触发重新授权」，与 AutoX.js 行为一致、下一次截图自动纠正，已放弃处理
 
+### 9. TemplateMatching 找图 Mat 泄漏（ResourceMonitor 刷屏）
+- **现象**: 脚本找图后日志狂刷 `ResourceMonitor$UnclosedResourceException: resource = Mat [...]`，不影响运行但刷屏
+- **根因**: `TemplateMatching.fastTemplateMatching` 金字塔循环里，早退 `break`（`!shouldContinueMatching`）在释放 `src`/`currentTemplate` 之前，导致这两个金字塔 Mat 泄漏。此路径是常见退出路径，故几乎每次找图都漏
+- **修复**: `break` 前先 `OpenCVHelper.release(src/currentTemplate)`
+- **文件**: `core/image/TemplateMatching.java`
+- **说明**: AutoX.js 同有此泄漏，但未启用 ResourceMonitor 抛异常检测故不刷屏；本 fork 保留了检测（有用），改为根治泄漏
+
+### 10. 非脚本线程 setTimeout 丢失（getTimerForThread 返回 null）
+- **现象**: websocket 断线后 `onClosed`/`onFailure` 里的 `setTimeout(重连, 5000)` 从不触发，不自动重连
+- **根因**: `Timers.getTimerForThread` 对「非主线程、非脚本 TimerThread」的线程（如 OkHttp/WebSocket 回调线程）返回 `null`，其上 `setTimeout` 直接 NPE、回调被静默丢弃
+- **修复**: 对齐 AutoX.js，这种情况回退到 `mMainTimer`，由主 looper 调度执行
+- **文件**: `runtime/api/Timers.java`
+
+### 11. GlobalActionAutomator.scaleY 误用 scaleX（Y 坐标缩放错）
+- **现象**: 用了 `setScreenMetrics(设计宽,设计高)` 且设计宽高比≠设备时，手势/点击的 Y 坐标偏
+- **根因**: `GlobalActionAutomator.scaleY(y)` 内部调 `ScreenMetrics.scaleX(y)`，给 Y 用了宽度比例
+- **修复**: 改用 `ScreenMetrics.scaleY(y)`（高度比例）。对不用 setScreenMetrics 的脚本无影响（缩放比=1）
+- **文件**: `automator/.../GlobalActionAutomator.kt`
+- **说明**: AutoX.js 同有此 bug。因唯一用 setScreenMetrics 的脚本(企微机器人.js)已弃用，改之无回归
+
+### 12. UiObjectCollection.performAction(int, args) 成功/失败逻辑反转
+- **现象**: 在控件**集合**上调带参动作（如 `setText`）时，返回值与实际相反（成功却返回 false）；动作本身照常执行，仅返回值错
+- **根因**: 带参重载里 `if (succeed) fail = true` 写反了（应 `if (!succeed)`）
+- **修复**: 改为 `if (!succeed) fail = true`
+- **文件**: `automator/.../UiObjectCollection.kt`
+- **说明**: AutoX.js 同有此 bug；仅影响集合带参动作的返回值，改之基本无回归
+
 ## 新增功能
 
 ### floaty 控制系统自带悬浮小球（CircularMenu）
@@ -137,4 +164,6 @@ applicationId 和源码包路径是独立的，改包名只需改 `applicationId
 
 ## 已知待修复问题
 
-（暂无。原「其他 app 获取截屏权限后脚本状态异常」已解决，见上文本地修复记录第 8 条。）
+原「其他 app 获取截屏权限后脚本状态异常」已解决（见上文本地修复记录第 8 条）。
+
+与 AutoX.js v6.5.8 对比后**尚未处理**的差异（多为核心重写，风险高收益不确定，暂缓），详见 [`AutoXjs对比与待办.md`](AutoXjs对比与待办.md)，含每项的现象/AutoX.js 做法/涉及文件/影响/修复思路，供未来会话快速上手。

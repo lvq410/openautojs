@@ -26,6 +26,10 @@
 | 6 | `ui` 模式脚本中创建 `floaty` 窗口 ANR（UI 线程死锁） | `JsRawWindow`/`JsResizableWindow` 构造函数判断当前线程，UI 线程直接执行不 post |
 | 7 | `UiObjectCollection` 缺少 `forEach` 等数组方法 | 脚本侧改用 `each()`（同问题 1 的 WrapFactory 根因） |
 | 8 | 其他 app 抢占截屏权限后脚本卡死（MIUI 不触发 `onStop`） | 新增 `ScreenCapturer.checkAlive()` 试帧判活，失效则返回 `false`，脚本据此重新申请或干净退出 |
+| 9 | 找图后日志狂刷 `UnclosedResourceException`（Mat 泄漏） | `TemplateMatching` 金字塔匹配早退 `break` 前释放 `src`/`currentTemplate` |
+| 10 | websocket 断线后 `setTimeout` 重连不触发 | `Timers.getTimerForThread` 对非脚本线程（如 OkHttp 回调线程）回退到主定时器，避免 `setTimeout` 返回 null 而丢回调 |
+| 11 | 用 `setScreenMetrics` 时手势 Y 坐标缩放错 | `GlobalActionAutomator.scaleY` 由误用宽度比改为正确的高度比 |
+| 12 | 控件集合上带参动作（如 `setText`）返回值取反 | `UiObjectCollection.performAction(int, args)` 成功/失败逻辑修正 |
 
 ### 新增功能
 
