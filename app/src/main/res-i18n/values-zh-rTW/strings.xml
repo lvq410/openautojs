@@ -395,7 +395,7 @@
   <string name="text_invalid_project_config">沒有配置文件</string>
   <string name="text_foreground_service">前台服務</string>
   <string name="foreground_notification_channel_name">前台服務通知</string>
-  <string name="foreground_notification_title">Autox.js保持運行中</string>
+  <string name="foreground_notification_title">Lvt4AJs保持運行中</string>
   <string name="foreground_notification_text">點擊進入主界面</string>
   <string name="text_run_on_other_broadcast">其他事件(廣播)</string>
   <string name="text_broadcast_action">廣播Action</string>

@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Toast
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -43,6 +44,7 @@ import org.autojs.autojs.external.fileprovider.AppFileProvider
 import org.autojs.autojs.model.explorer.ExplorerDirPage
 import org.autojs.autojs.model.explorer.Explorers
 import org.autojs.autojs.model.script.Scripts.edit
+import org.autojs.autojs.model.script.Scripts.run
 import org.autojs.autojs.ui.common.ScriptOperations
 import org.autojs.autojs.ui.explorer.ExplorerViewKt
 import org.autojs.autojs.ui.main.rememberExternalStoragePermissionsState
@@ -241,10 +243,21 @@ class ScriptListFragment : Fragment() {
         )
         setOnItemClickListener { _, item ->
             item?.let {
-                if (item.isEditable) {
-                    edit(requireContext(), item.toScriptFile())
-                } else {
-                    IntentUtil.viewFile(get(), item.path, AppFileProvider.AUTHORITY)
+                when {
+                    //可执行脚本(js/auto) → 直接运行(而非进入编辑)；编辑仍可通过条目上的编辑按钮
+                    item.isExecutable -> run(item.toScriptFile())
+                    //可编辑的非脚本文件 → 打开编辑器
+                    item.isEditable -> edit(requireContext(), item.toScriptFile())
+                    //其它文件(如 .conf 等) → 用其他应用打开；无对应应用时 catch 异常，避免闪退
+                    else -> try {
+                        IntentUtil.viewFile(get(), item.path, AppFileProvider.AUTHORITY)
+                    } catch (e: Exception) {
+                        Toast.makeText(
+                            requireContext(),
+                            R.string.edit_and_run_handle_intent_error,
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 }
             }
         }
