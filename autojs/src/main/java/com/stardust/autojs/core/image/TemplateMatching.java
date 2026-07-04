@@ -90,6 +90,11 @@ public class TemplateMatching {
             if (previousMatchResult.isEmpty()) {
                 // 如果不是第一次匹配，并且不满足shouldContinueMatching的条件，则直接退出匹配
                 if (!isFirstMatching && !shouldContinueMatching(level, maxLevel)) {
+                    //退出前释放本轮已创建的金字塔Mat，否则会泄漏（ResourceMonitor会持续报UnclosedResourceException）
+                    if (src != img)
+                        OpenCVHelper.release(src);
+                    if (currentTemplate != template)
+                        OpenCVHelper.release(currentTemplate);
                     break;
                 }
                 Mat matchResult = matchTemplate(src, currentTemplate, matchMethod);

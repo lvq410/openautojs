@@ -1,92 +1,44 @@
-# OpenAutojs ( Free, open source Auto.js )
+# Lvt4AJs — 基于 OpenAutoJS 的定制版
 
-[简体中文文档](README_zh-CN.md)
+这是 [OpenAutoJS](https://github.com/openautojs/openautojs) 的一个个人定制分支。
 
-## Brief Introduction
+## 为什么有这个 fork
 
-A JavaScript runtime and development environment on the Android platform that supports accessibility services, with development goals similar to JsBox and Workflow.  
-This project is based on Autox.js to establish the openautojs community, this project aims to allow users to enjoy free and open source Auto .js  
+- **Auto.js** 早已停止维护并全网下架。
+- 社区基于它做了开源的 **OpenAutoJS**，但同样已 2~3 年无人维护——好在它开源、有完整源码。
+- 本 fork 在 OpenAutoJS 基础上做了两类改动：
+  1. **兼容性修复**：为把原本跑在 Auto.js 上的自动化脚本迁到 OpenAutoJS，修复 OpenAutoJS 与 Auto.js 行为不一致、导致脚本跑不起来的地方；
+  2. **按需增强**：叠加一些自用功能。
 
-### About OpenAutojs
+> 原始 OpenAutoJS 的项目介绍见 [README.openautojs.md](README.openautojs.md)（英文，含 [简体中文](README_zh-CN.md)）。
 
-* Documentation https://openautojs.github.io
-* Project Address https://github.com/openautojs/openautojs
-* VS Code Extension: https://github.com/openautojs/openautojs-vscode-extension
+## 相对上游 OpenAutoJS 的改动
 
-### Download address：
-[https://github.com/openautojs/openautojs/releases](https://github.com/openautojs/openautojs/releases)  
+### 兼容性修复（对齐 Auto.js 行为）
 
-#### APK release notes：
-- universal: General version (don't care about the size of the installation package, too lazy to choose this version, including the following 2 CPU architecture so)
-- armeabi-v7a: 32-bit ARM device(Standby machine preferred)
-- arm64-v8a: 64-bit ARM devices (mainstream flagships)
+| # | 问题 | 修复 |
+|---|------|------|
+| 1 | Java 回调传入 JS 的 String 无法 `eval`、`==` 比较失败 | `InterruptibleAndroidContextFactory.makeContext` 设置 WrapFactory，String/Number/Boolean 不再被包装成 `NativeJavaObject` |
+| 2 | 每个脚本都弹截屏授权（截屏权限不跨引擎共享） | 把 `ScreenCapturer` 移到共享的 `ScreenCaptureRequester`，多脚本复用同一授权 |
+| 3 | 已有权限时 `requestScreenCapture()` 永不返回（Promise.wait 死锁） | 已有 capturer 时直接返回 `Boolean`，绕过 Promise |
+| 4 | 切换屏幕方向时崩溃（Android 14+ VirtualDisplay 限制） | 复用 VirtualDisplay，只换 Surface + resize |
+| 5 | 首个脚本退出后共享截屏失效（依赖引擎 Handler/Looper） | 重写 `ScreenCapturer`，`capture()` 改为按需 `acquireLatestImage()`，不依赖后台线程 |
+| 6 | `ui` 模式脚本中创建 `floaty` 窗口 ANR（UI 线程死锁） | `JsRawWindow`/`JsResizableWindow` 构造函数判断当前线程，UI 线程直接执行不 post |
+| 7 | `UiObjectCollection` 缺少 `forEach` 等数组方法 | 脚本侧改用 `each()`（同问题 1 的 WrapFactory 根因） |
+| 8 | 其他 app 抢占截屏权限后脚本卡死（MIUI 不触发 `onStop`） | 新增 `ScreenCapturer.checkAlive()` 试帧判活，失效则返回 `false`，脚本据此重新申请或干净退出 |
 
-### Characteristic
+### 新增功能
 
-1. Easy-to-use automation functions implemented by accessibility services
-2. Floating window recording and running
-3. More professional & powerful selector API, providing searching, traversing, getting information, operations, etc. for on-screen controls. Similar to Google's UI testing framework Ui Automator, you can also use it as a mobile version of the UI testing framework
-4. Using JavaScript as a scripting language, and supporting code completion, variable renaming, code formatting, find and replace functions, etc., it can be used as a JavaScript IDE
-5. Support for writing interfaces using e 4x and can package Java Script as apk files that you can use to develop gadget applications
-6. Support the use of root privileges to provide more powerful screen click, swipe, record function and run shell commands. Recording can produce JS files or binary files, and the playback of recorded actions is relatively smooth
-7. Provide functions such as taking screenshots, saving screenshots, image color finding, and image finding
-8. It can be used as a Tasker plug-in, and can be used in combination with Tasker for daily workflows
-9. With interface analysis tools, similar to Android Studio's LayoutInspector, you can analyze the level and scope of the interface and obtain the control information on the interface
+- **悬浮小球（自带 CircularMenu）控制接口**：`floaty.isCircularMenuShowing()` / `hideCircularMenu()` / `showCircularMenu()`，让脚本运行时能隐藏自带悬浮球、结束后还原，避免它遮挡屏幕、干扰截图识别或误触。
+- **悬浮球默认点击行为可配置**：侧边栏「悬浮窗」开关下方可选「打开菜单（默认）/ 打开脚本清单 / 停止所有脚本」。
+- **主界面横屏布局修复**：修正横屏下抽屉过宽、界面错乱的问题。
+- **文件列表排序**：脚本列表改为「文件在前、文件夹在后」。
 
-## License
+## 构建与包名
 
-Based on Git Annotations, code before 2020.7.24 is protected by the original license, code added in 2020.7.24 ~ 2023.2.17 is protected by GPLv2, and code added after 2023.2.17 is protected by GPLv3
+- 应用名 `Lvt4AJs`、包名 `com.lvt4j.ajs`（`resourcePackageName` 仍固定为上游 `org.openautojs.autojs`）。
+- 构建命令、环境、签名等开发说明见 [CLAUDE.md](CLAUDE.md)。
 
-This product is licensed under the [GPL-V3](https://opensource.org/license/gpl-3-0/) license,
-And [autojs Project](https://github.com/hyb1996/Auto.js) license:
+## 许可与致谢
 
-Based on [Mozilla Public License Version 2.0](https://github.com/hyb1996/NoRootScriptDroid/blob/master/LICENSE.md) with the following terms:
-Non-Commercial Use — The source code and binary products of this Project and the Projects derived from it may not be used for any commercial or for-profit purposes
-
-JS scripts developed based on this platform are not subject to the above protocols
-
-## About Development：
-
-#### Compilation related：
-Command description: Run the command in the project root directory, if using Windows powerShell < 7.0, use the command containing ";"
-
-##### Install the debug build locally to the device：
-```shell
-./gradlew inrt:assembleTemplateDebug && ./gradlew inrt:cp2APPDebug && ./gradlew app:assembleV6Debug && ./gradlew app:installV6Debug
-#or
-./gradlew inrt:assembleTemplateDebug ; ./gradlew inrt:cp2APPDebug ; ./gradlew app:assembleV6Debug ; ./gradlew app:installV6Debug
-```
-The generated debug version APK file is under app/build/outputs/apk/v6/debug with the default signature
-
-##### Compile the release version locally：
-```shell
-./gradlew inrt:assembleTemplate && ./gradlew inrt:cp2APP && ./gradlew app:assembleV6
-#or
-./gradlew inrt:assembleTemplate ; ./gradlew inrt:cp2APP ; ./gradlew app:assembleV6
-```
-The generated APK file is an unsigned APK file. Under app/build/outputs/apk/v6/release, it needs to be signed before it can be installed.
-
-##### Local Android Studio to run the debug build to the device:
-First run the following command:
-
-```shell
-./gradlew inrt:assembleTemplate && ./gradlew inrt:cp2APP
-#or
-./gradlew inrt:assembleTemplate ; ./gradlew inrt:cp2APP
-```
-
-Then click the Android Studio Run button
-
-##### Local Android Studio compiles and signs the release APK:
-First run the following command:
-
-```shell
-./gradlew inrt:assembleTemplate && ./gradlew inrt:cp2APP
-#or
-./gradlew inrt:assembleTemplate ; ./gradlew inrt:cp2APP
-```
-
-Then click Android Studio menu "Build" -> "Generate Signed Bundle APK..." -> check "APK"
--> "Next" -> select or create a new certificate -> "Next" -> select "v6Release" -> "Finish"
-Generated APK file, under app/v6/release
-
+基于 [OpenAutoJS](https://github.com/openautojs/openautojs)（其又基于 [AutoX.js](https://github.com/kkevsekk1/AutoX) / Auto.js），遵循原项目许可。感谢原作者与社区。

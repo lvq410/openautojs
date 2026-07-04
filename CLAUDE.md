@@ -1,5 +1,11 @@
 # OpenAutoJS (fork)
 
+## 背景 / 需求来源
+- **Auto.js** 早已停止维护并全网下架。有人基于它做了开源的 **OpenAutoJS**，但同样已 2~3 年无人维护——好在它开源、有完整源码，可自行改造。
+- 本 fork 的两个目标：
+  1. **迁移兼容**：把既有的 AutoxScripts 自动化脚本从 Auto.js 迁到 OpenAutoJS，因此需修复 OpenAutoJS 与 Auto.js 不兼容之处（见「相对 AutoX.js 的本地修复记录」）。
+  2. **按需增强**：在其上叠加自用功能（如悬浮小球运行时隐藏、悬浮球默认点击行为配置、横屏布局修复等，见「新增功能」）。
+
 ## 项目概况
 - 包名: `com.lvt4j.ajs`（已从 `org.openautojs.autojs` 改为自用）
 - 应用名: `Lvt4AJs`
@@ -86,6 +92,13 @@ applicationId 和源码包路径是独立的，改包名只需改 `applicationId
 - **修复**: 脚本中 `forEach` 改为 `each()`（仅改了 `common.js`，企微机器人.js 待改）
 - **文件**: `D:\Workspace4Course\mine\AutoxScripts\common.js`
 
+### 8. 其他 app 抢占截屏权限后脚本卡死（MIUI onStop 不触发）
+- **现象**: 其他 app 获取 MediaProjection 后，共享的 ScreenCapturer 已失效但重启脚本时无授权弹窗、无悬浮窗、脚本卡死
+- **根因**: MIUI 上 MediaProjection 被系统作废后 `onStop` 回调可能不触发，`mAvailable` 仍为 true，`requestScreenCapture` 误判 capturer 可用；`captureScreen` 又会一直重试导致连锁卡住
+- **修复**: 新增 `ScreenCapturer.checkAlive()`——排空缓冲区旧帧后等待新帧（最多 2000ms），live projection 持续产帧、dead 的排空后无新帧，据此判活。`requestScreenCapture` 已有 capturer 时先 `checkAlive()`：存活则复用，失效则 `release()` 并返回 `Boolean.FALSE`，脚本据此提示「没有授予屏幕截图权限」后退出/重新申请（对齐 AutoX.js 的失败即退出行为）。`captureScreen` 超时也清掉共享 capturer 并抛异常，脚本侧 `captureScreenx` 捕获后重新申请权限
+- **文件**: `core/image/capture/ScreenCapturer.java`, `runtime/api/Images.java`；脚本侧 `common.js`（`requestCapturePermission`/`captureScreenx`）
+- **说明**: 唯一未解的边角是「抢占后第一次截图会拿到一帧旧屏，第二次才触发重新授权」，与 AutoX.js 行为一致、下一次截图自动纠正，已放弃处理
+
 ## 新增功能
 
 ### floaty 控制系统自带悬浮小球（CircularMenu）
@@ -124,8 +137,4 @@ applicationId 和源码包路径是独立的，改包名只需改 `applicationId
 
 ## 已知待修复问题
 
-### 其他 app 获取截屏权限后，脚本状态异常
-- **现象**: 其他 app 获取 MediaProjection 后，OpenAutoJS 的共享 ScreenCapturer 失效。重新启动脚本时：无截屏权限弹窗、无悬浮窗、脚本卡住
-- **根因**: MIUI 上 MediaProjection 被系统作废后，`onStop` 回调可能不触发（即使用主线程 Handler），`isAvailable()` 仍返回 true。`requestScreenCapture` 认为 capturer 可用，走了快速返回路径但实际 MediaProjection 已失效。同时 `captureScreen` 的重试循环可能导致 UI 线程阻塞连锁反应
-- **临时方案**: 杀掉 OpenAutoJS 进程重启
-- **待尝试方向**: 在 `requestScreenCapture` 中试截一帧验证 capturer 可用性（已部分实现但未验证有效）；或改为不共享 ScreenCapturer，仅共享 Intent data 以跳过授权弹窗
+（暂无。原「其他 app 获取截屏权限后脚本状态异常」已解决，见上文本地修复记录第 8 条。）
