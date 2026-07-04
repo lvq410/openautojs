@@ -49,10 +49,16 @@ public class Timers {
             return mMainTimer;
         }
         Timer timer = TimerThread.getTimerForThread(thread);
-        if (timer == null && Looper.myLooper() == Looper.getMainLooper()) {
+        if (timer != null) {
+            return timer;
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
             return mUiTimer;
         }
-        return timer;
+        //非主线程、非脚本TimerThread（如 OkHttp/WebSocket 回调线程等第三方线程）：回退到主定时器，
+        //使其上的 setTimeout/setInterval 仍能被主 looper 调度执行（对齐 AutoX.js）；
+        //否则会返回 null 导致 NPE、回调被静默丢弃（典型表现：websocket 断线后 setTimeout 重连不触发）
+        return mMainTimer;
     }
 
     public int setTimeout(Object callback, long delay, Object... args) {
