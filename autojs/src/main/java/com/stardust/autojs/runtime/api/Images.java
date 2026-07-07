@@ -63,6 +63,12 @@ public class Images {
     private ScreenMetrics mScreenMetrics;
     private volatile boolean mOpenCvInitialized = false;
 
+    //上次确认 projection 存活（取到真新帧 / blink 判活）的时刻
+    private long mLastAliveTime = 0L;
+    //存活信任窗口：距上次确认存活小于此值时，静止无新帧直接秒回旧帧、不 blink；超过才 blink 判活死。
+    //调小→抢占恢复更快、blink 更频繁（每次 blink 给该次截图加约100ms）；不影响误判消除（重授权前必先 blink）
+    private static final long ALIVE_TRUST_MS = 1000;
+
     @ScriptVariable
     public final ColorFinder colorFinder;
 
@@ -112,20 +118,46 @@ public class Images {
         if (capturer == null) {
             throw new SecurityException("No screen capture permission");
         }
-        //按需获取可能返回null（首帧未就绪），短暂重试
-        Image capture = null;
-        for (int i = 0; i < 20 && capture == null; i++) {
-            capture = capturer.capture();
-            if (capture == null) {
-                try { Thread.sleep(50); } catch (InterruptedException e) { break; }
+
+        //先尝试取一帧新帧（画面有变化时立即拿到）
+        Image capture = capturer.capture();
+
+        if (capture == null) {
+            //没有新帧：分两种情况
+            if (mPreCaptureImage == null) {
+                //还没有任何缓存（授权后首帧未就绪）：短轮询等首帧，最多约2s
+                for (int i = 0; i < 40 && capture == null; i++) {
+                    try { Thread.sleep(50); } catch (InterruptedException e) { break; }
+                    capture = capturer.capture();
+                }
+                if (capture == null) {
+                    capturer.release();
+                    mScreenCaptureRequester.setScreenCapturer(null);
+                    throw new ScriptException("Screen capture timeout");
+                }
+                //拿到首帧，落到下方包装返回
+            } else {
+                //已有缓存：画面静止（无新帧）。可能是"活着静止"，也可能是"被抢占/已死"——二者现象相同，
+                //MIUI 抢占又不投任何回调，纯等待无法区分。故：信任窗口内直接秒回旧帧（静止旧帧准确）；
+                //超过信任窗口才用 blink 强制产帧判活死——活着就绝不重授权（消除误判），死了才重授权（保留抢占恢复）。
+                long sinceAlive = System.currentTimeMillis() - mLastAliveTime;
+                if (sinceAlive < ALIVE_TRUST_MS) {
+                    return mPreCaptureImage; //近期刚确认过存活 → 静止 → 秒回旧帧，无 blink、无弹窗
+                }
+                Image blinkImg = capturer.probeLivenessByBlink();
+                if (blinkImg == null) {
+                    //blink 判 DEAD：真失效/被抢占 → 清掉 capturer，脚本侧捕获后重新授权
+                    capturer.release();
+                    mScreenCaptureRequester.setScreenCapturer(null);
+                    throw new ScriptException("Screen capture timeout");
+                }
+                //blink 判 ALIVE：活着（静止）→ 用 blink 强制产出的这帧作为本次结果，落到下方包装
+                capture = blinkImg;
             }
         }
-        if (capture == null) {
-            //截图超时，MediaProjection可能已被系统作废（其他app获取了截屏权限），清掉共享的ScreenCapturer
-            capturer.release();
-            mScreenCaptureRequester.setScreenCapturer(null);
-            throw new ScriptException("Screen capture timeout");
-        }
+
+        //取到有效帧（正常新帧 / 首帧 / blink 帧）：刷新存活时间并包装返回
+        mLastAliveTime = System.currentTimeMillis();
         if (capture == mPreCapture && mPreCaptureImage != null) {
             return mPreCaptureImage;
         }

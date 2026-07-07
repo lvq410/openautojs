@@ -153,6 +153,37 @@ public class ScreenCapturer {
         return mScreenDensity;
     }
 
+    /**
+     * 闪像素存活探测：通过 1px 悬浮窗挪动强制源屏幕重新合成一帧，据此区分"活着但静止无新帧"与"真失效/被抢占"。
+     * 活的 projection 镜像会收到这帧；被抢占/已死的收不到（MIUI 抢占不触发 onStop 回调，纯等待无法区分，故用此法）。
+     * 实测：活着静止约 100ms 收到帧，被抢占 800ms 也收不到。
+     * @return 非 null=闪后取到的新帧(存活，可直接作为本次截图返回)；null=闪后无帧/异常(已失效)
+     */
+    public synchronized Image probeLivenessByBlink() {
+        try {
+            //先排空缓冲区旧帧，确保后面拿到的是"闪"之后源屏幕重合成的新帧
+            for (int i = 0; i < 5; i++) {
+                Image img = mImageReader.acquireLatestImage();
+                if (img == null) break;
+                img.close();
+            }
+            //闪一下：悬浮窗挪 1px → 强制真实屏幕重新合成
+            BlinkProbe.nudge(mContext);
+            for (int i = 0; i < 16; i++) {
+                Thread.sleep(50);
+                Image img = mImageReader.acquireLatestImage();
+                if (img != null) {
+                    Image old = mCachedImage.getAndSet(img);
+                    if (old != null) old.close();
+                    return img; //存活（活着但静止）
+                }
+            }
+            return null; //闪后 800ms 仍无帧 → 已失效/被抢占
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     public synchronized void release() {
         mAvailable = false;
         if (mVirtualDisplay != null) {
