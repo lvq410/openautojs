@@ -97,7 +97,7 @@ applicationId 和源码包路径是独立的，改包名只需改 `applicationId
 - **根因**: MIUI 上 MediaProjection 被系统作废后 `onStop` 回调可能不触发，`mAvailable` 仍为 true，`requestScreenCapture` 误判 capturer 可用；`captureScreen` 又会一直重试导致连锁卡住
 - **修复**: 新增 `ScreenCapturer.checkAlive()`——排空缓冲区旧帧后等待新帧（最多 2000ms），live projection 持续产帧、dead 的排空后无新帧，据此判活。`requestScreenCapture` 已有 capturer 时先 `checkAlive()`：存活则复用，失效则 `release()` 并返回 `Boolean.FALSE`，脚本据此提示「没有授予屏幕截图权限」后退出/重新申请（对齐 AutoX.js 的失败即退出行为）。`captureScreen` 超时也清掉共享 capturer 并抛异常，脚本侧 `captureScreenx` 捕获后重新申请权限
 - **文件**: `core/image/capture/ScreenCapturer.java`, `runtime/api/Images.java`；脚本侧 `common.js`（`requestCapturePermission`/`captureScreenx`）
-- **说明**: 唯一未解的边角是「抢占后第一次截图会拿到一帧旧屏，第二次才触发重新授权」，与 AutoX.js 行为一致、下一次截图自动纠正，已放弃处理
+- **说明**: `checkAlive()` 仍用于 `requestScreenCapture` 已有 capturer 时的复用判断。但本条为 `captureScreen` 引入的「超时即销毁 capturer + 重新授权」会在静止画面下误弹授权（详见 #13），该超时销毁逻辑已被 #13 的 blink 判活死方案取代
 
 ### 9. TemplateMatching 找图 Mat 泄漏（ResourceMonitor 刷屏）
 - **现象**: 脚本找图后日志狂刷 `ResourceMonitor$UnclosedResourceException: resource = Mat [...]`，不影响运行但刷屏
@@ -125,6 +125,16 @@ applicationId 和源码包路径是独立的，改包名只需改 `applicationId
 - **修复**: 改为 `if (!succeed) fail = true`
 - **文件**: `automator/.../UiObjectCollection.kt`
 - **说明**: AutoX.js 同有此 bug；仅影响集合带参动作的返回值，改之基本无回归
+
+### 13. 静止画面偶发误弹截屏授权（blink 判活死）
+- **现象**: 脚本运行中低概率弹出截屏授权对话框（无其他 app 抢占、无转屏时也弹）；页面「无变化元素」的静止画面更易触发
+- **根因**: 静止画面下镜像 VirtualDisplay 不再产新帧，`acquireLatestImage()` 持续返回 null；#8 为 `captureScreen` 引入的「超时即 release + 重授权」把这误判为 projection 失效。而「活着但静止」与「被抢占已死」现象完全相同——MIUI 抢占既不触发 `onStop` 也不触发 `VirtualDisplay.Callback`，纯等待（`checkAlive`）或 `setSurface/resize`（只动消费端、撬不动源屏幕重合成）都无法区分（均已实测否定）
+- **修复**:
+  - `capture()` 无新帧且已有缓存时，信任窗口 `ALIVE_TRUST_MS`(1s) 内直接秒回上一帧（静止时旧帧即当前画面、准确），不再超时销毁
+  - 超过信任窗口才用 `BlinkProbe` 挪动 1px 悬浮窗强制**源屏幕**重新合成一帧：活的 projection 镜像约 100ms 收到该帧、被抢占的 800ms 也收不到，据此判活死。存活→用该帧作为本次截图返回、不弹窗、刷新存活时间；失效→`release()` 重新授权
+  - 关键：重授权前**必先 blink**，故活着绝不误弹（零误判）；真失效/被抢占约 1s 后自动恢复
+- **文件**: `core/image/capture/BlinkProbe.java`（新增，1px 悬浮窗）、`core/image/capture/ScreenCapturer.java`（`probeLivenessByBlink()`）、`runtime/api/Images.java`（`captureScreen` 判定 + `mLastAliveTime`/`ALIVE_TRUST_MS`）
+- **说明**: 悬浮窗 1px、屏幕左上角、alpha 8/255 肉眼不可见（圆角屏更看不到），app 已具悬浮窗权限（悬浮小球）。实测一天 11 次静止误判全被拦下、零弹窗，抢占约 1s 恢复。本方案取代 #8 的 `captureScreen` 超时销毁逻辑
 
 ## 新增功能
 
