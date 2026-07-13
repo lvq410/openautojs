@@ -88,19 +88,23 @@ public class Mat extends org.opencv.core.Mat implements ResourceMonitor.Resource
 
     @Override
     public void release() {
-        super.release();
-        mReleased = true;
-        ResourceMonitor.onClose(this);
+        if (!mReleased) {
+            super.release();
+            mReleased = true;
+            ResourceMonitor.onClose(this);
+        }
     }
 
     @Override
     protected void finalize() throws Throwable {
         if (!mReleased) {
+            //未被手动释放的 Mat，走父类 finalize 正常 n_delete 销毁
             ResourceMonitor.onFinalize(this);
-            super.release();
             mReleased = true;
+            super.finalize();
         }
-        super.finalize();
+        //已被 release 过的 Mat，不再调 super.finalize()：
+        //父类 finalize 会无条件 n_delete(nativeObj)，对已释放的 native 指针 double-free → SIGSEGV
     }
 
     @Override

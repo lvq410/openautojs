@@ -19,7 +19,13 @@ import com.stardust.view.accessibility.AccessibilityService;
 import com.tencent.bugly.crashreport.BuglyLog;
 import com.tencent.bugly.crashreport.CrashReport;
 
+import java.io.File;
+import java.io.FileWriter;
+import java.io.PrintWriter;
 import java.lang.Thread.UncaughtExceptionHandler;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 import java.util.Map;
 
 public class CrashHandler extends CrashReport.CrashHandleCallback implements UncaughtExceptionHandler {
@@ -41,6 +47,7 @@ public class CrashHandler extends CrashReport.CrashHandleCallback implements Unc
 
     public void uncaughtException(Thread thread, Throwable ex) {
         Log.e(TAG, "Uncaught Exception", ex);
+        writeCrashLog(thread, ex);
         if (thread != Looper.getMainLooper().getThread()) {
             if(!(ex instanceof RhinoException)){
                 CrashReport.postCatchedException(ex, thread);
@@ -101,6 +108,31 @@ public class CrashHandler extends CrashReport.CrashHandleCallback implements Unc
 
     private boolean crashIntervalTooLong() {
         return System.currentTimeMillis() - firstCrashMillis > 3000;
+    }
+
+    /**
+     * 将 Java 层崩溃堆栈追加写入 app 自身外部存储目录下的 crash.log，
+     * 路径形如 /sdcard/Android/data/com.lvt4j.ajs/files/crash.log，
+     * 便于事后排查闪退原因（Bugly 依赖网络上报，本地文件更可靠）。
+     * native crash（SIGSEGV 等）无法被 Java UncaughtExceptionHandler 捕获，
+     * 仍由系统 tombstone 记录。
+     */
+    private void writeCrashLog(Thread thread, Throwable ex) {
+        try {
+            File dir = GlobalAppContext.get().getExternalFilesDir(null);
+            if (dir == null) return;
+            File logFile = new File(dir, "crash.log");
+            PrintWriter pw = new PrintWriter(new FileWriter(logFile, true));
+            String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault()).format(new Date());
+            pw.println("===== " + time + " Thread: " + thread.getName() + " =====");
+            pw.println(Build.FINGERPRINT);
+            ex.printStackTrace(pw);
+            pw.println();
+            pw.flush();
+            pw.close();
+        } catch (Exception ignore) {
+            //写日志失败不能影响原有崩溃处理流程
+        }
     }
 
 
