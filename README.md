@@ -30,6 +30,7 @@
 | 10 | websocket 断线后 `setTimeout` 重连不触发 | `Timers.getTimerForThread` 对非脚本线程（如 OkHttp 回调线程）回退到主定时器，避免 `setTimeout` 返回 null 而丢回调 |
 | 11 | 用 `setScreenMetrics` 时手势 Y 坐标缩放错 | `GlobalActionAutomator.scaleY` 由误用宽度比改为正确的高度比 |
 | 12 | 控件集合上带参动作（如 `setText`）返回值取反 | `UiObjectCollection.performAction(int, args)` 成功/失败逻辑修正 |
+| 13 | 静止画面偶发误弹截屏授权 | 1px 悬浮窗 blink 判活死方案，替代超时销毁逻辑 |
 
 ### 新增功能
 
@@ -37,6 +38,8 @@
 - **悬浮球默认点击行为可配置**：侧边栏「悬浮窗」开关下方可选「打开菜单（默认）/ 打开脚本清单 / 停止所有脚本」。
 - **主界面横屏布局修复**：修正横屏下抽屉过宽、界面错乱的问题。
 - **文件列表排序**：脚本列表改为「文件在前、文件夹在后」。
+- **UI 脚本 "window" 执行模式**：脚本开头声明 `"ui window";` 即可在独立 recents task 中运行，划掉即终止脚本引擎并释放资源。recents 中自动以脚本文件名命名。
+- **onDestroy 清理修复**：UI 脚本的 Activity 被系统销毁时（如从 recents 划掉），正确通知 listener 并从"运行中脚本"列表移除。
 
 ## 构建与包名
 

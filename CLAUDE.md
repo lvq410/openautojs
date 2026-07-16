@@ -172,6 +172,21 @@ applicationId 和源码包路径是独立的，改包名只需改 `applicationId
 - **实现**: 反转适配器的位置映射（类别标题位置、`getItemViewType`、`onBindViewHolder`、`getItemPosition`、spanSizeLookup）。主列表实际用的是 `ExplorerViewKt.kt`（Kotlin 重写版），`ExplorerView.java` 为另一处（对话框等）用同样逻辑一并改
 - **文件**: `ui/explorer/ExplorerViewKt.kt`, `ui/explorer/ExplorerView.java`
 
+### UI 脚本 "window" 执行模式（独立窗口）
+- **背景**: UI 脚本（`"ui";`）默认与 AutoX.js 主 Activity 共享 task 栈，在 recents 中不独立显示。debug 工具类脚本（图片匹配、边缘检测等）需要独立窗口，之前靠脚本层 `FLAG_ACTIVITY_NEW_DOCUMENT` 自重启 hack 实现，但存在 recents 划掉后脚本引擎不终止、"运行中脚本"列表不更新、imagePool 泄漏导致 OOM 等问题
+- **新增执行模式**: 脚本开头声明 `"ui window";` 即可，框架自动处理：
+  - `JavaScriptSource.kt` 新增 `EXECUTION_MODE_WINDOW = 0x4`，`EXECUTION_MODES` map 加 `"window"` 条目，与 `"ui"` / `"auto"` 按位组合
+  - `ScriptExecuteActivity.execute()` 检测到 window 模式时给 Intent 添加 `FLAG_ACTIVITY_NEW_DOCUMENT | FLAG_ACTIVITY_MULTIPLE_TASK`，使 Activity 在独立 recents task 中运行
+  - `ScriptExecuteActivity.onCreate()` 对 window 模式自动设置 `TaskDescription` 为脚本文件名，recents 中显示有意义的标题
+- **文件**: `autojs/.../script/JavaScriptSource.kt`, `autojs/.../execution/ScriptExecuteActivity.kt`
+
+### ScriptExecuteActivity.onDestroy 修复（"运行中脚本"列表残留）
+- **现象**: UI 脚本的 Activity 被系统销毁（如从 recents 划掉）后，脚本仍在"运行中脚本"列表中，且点 X 也无法终止
+- **根因**: `onDestroy()` 只调了 `engine.destroy()`，没通知 `ScriptExecutionListener`（`onSuccess`/`onException`）——而 UI 层的任务列表移除靠的就是这个回调。正常流程中 `finish()` 会通知 listener，但从 recents 划掉时系统直接调 `onDestroy()`，不经过 `finish()`
+- **修复**: `onDestroy()` 中先检查 listener 是否已通知（`mListenerNotified` 标志防重复），未通知则补发 `onSuccess`/`onException`，再 `engine.destroy()`。`finish()` 中通知 listener 后设 `mListenerNotified = true`。`engine.destroy()` 也包了 try-catch 防止异常中断清理流程
+- **影响范围**: 所有 UI 模式脚本（不限于 window 模式），修复了通用的 Activity 被系统回收时的清理问题
+- **文件**: `autojs/.../execution/ScriptExecuteActivity.kt`
+
 ## 已知待修复问题
 
 原「其他 app 获取截屏权限后脚本状态异常」已解决（见上文本地修复记录第 8 条）。

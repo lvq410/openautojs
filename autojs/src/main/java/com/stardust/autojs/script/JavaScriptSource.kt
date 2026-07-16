@@ -77,10 +77,12 @@ abstract class JavaScriptSource(name: String) : ScriptSource(name) {
         const val EXECUTION_MODE_NORMAL = 0
         const val EXECUTION_MODE_UI = 0x00000001
         const val EXECUTION_MODE_AUTO = 0x00000002
+        const val EXECUTION_MODE_WINDOW = 0x00000004
         private const val LOG_TAG = "JavaScriptSource"
         private val EXECUTION_MODES = MapBuilder<String, Int>()
             .put("ui", EXECUTION_MODE_UI)
             .put("auto", EXECUTION_MODE_AUTO)
+            .put("window", EXECUTION_MODE_WINDOW)
             .build()
         private const val PARSING_MAX_TOKEN = 300
     }

@@ -1,8 +1,10 @@
 package com.stardust.autojs.execution
 
 import android.app.Activity
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
@@ -21,6 +23,7 @@ import com.stardust.autojs.engine.ScriptEngineManager
 import com.stardust.autojs.execution.ExecutionConfig.CREATOR.tag
 import com.stardust.autojs.execution.ScriptExecution.AbstractScriptExecution
 import com.stardust.autojs.runtime.ScriptRuntime
+import com.stardust.autojs.script.JavaScriptSource
 import com.stardust.autojs.script.ScriptSource
 import org.mozilla.javascript.ContinuationPending
 
@@ -34,6 +37,7 @@ class ScriptExecuteActivity : AppCompatActivity() {
     private var mScriptSource: ScriptSource? = null
     private var mScriptExecution: ActivityScriptExecution? = null
     private var mRuntime: ScriptRuntime? = null
+    private var mListenerNotified = false
     var eventEmitter: EventEmitter? = null
         private set
 
@@ -56,6 +60,13 @@ class ScriptExecuteActivity : AppCompatActivity() {
         mExecutionListener = mScriptExecution!!.listener
         mRuntime = (mScriptEngine as JavaScriptEngine?)!!.runtime
         eventEmitter = EventEmitter(mRuntime!!.bridges)
+        // "window" 模式：设置 recents 中显示的任务名称为脚本文件名
+        if (mScriptSource is JavaScriptSource &&
+            ((mScriptSource as JavaScriptSource).executionMode and JavaScriptSource.EXECUTION_MODE_WINDOW) != 0) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                setTaskDescription(ActivityManager.TaskDescription(mScriptSource!!.name))
+            }
+        }
         runScript()
         emit("create", savedInstanceState)
     }
@@ -114,6 +125,7 @@ class ScriptExecuteActivity : AppCompatActivity() {
         } else {
             mExecutionListener!!.onSuccess(mScriptExecution, mResult)
         }
+        mListenerNotified = true
         super.finish()
     }
 
@@ -123,7 +135,26 @@ class ScriptExecuteActivity : AppCompatActivity() {
         if (mScriptEngine != null) {
             mScriptEngine!!.put("activity", null)
             mScriptEngine!!.setTag("activity", null)
-            mScriptEngine!!.destroy()
+            // 通知 listener 脚本已结束，使"运行中脚本"列表正确移除该条目
+            // finish() 只在脚本主动结束时调用，从 recents 划掉等场景不走 finish()
+            if (!mListenerNotified && mExecutionListener != null && mScriptExecution != null) {
+                mListenerNotified = true
+                try {
+                    val exception = mScriptEngine!!.uncaughtException
+                    if (exception != null) {
+                        mExecutionListener!!.onException(mScriptExecution, exception)
+                    } else {
+                        mExecutionListener!!.onSuccess(mScriptExecution, mResult)
+                    }
+                } catch (e: Exception) {
+                    Log.e(LOG_TAG, "onDestroy: notify listener failed", e)
+                }
+            }
+            try {
+                mScriptEngine!!.destroy()
+            } catch (e: Exception) {
+                Log.e(LOG_TAG, "onDestroy: engine.destroy() failed", e)
+            }
         }
         mScriptExecution = null
     }
@@ -230,6 +261,11 @@ class ScriptExecuteActivity : AppCompatActivity() {
                 .putExtra(EXTRA_EXECUTION_ID, execution.id)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 .addFlags(task.config.intentFlags)
+            // "window" 模式：在独立的 recents task 中运行，划掉即销毁 Activity 并终止脚本引擎
+            val source = task.source
+            if (source is JavaScriptSource && (source.executionMode and JavaScriptSource.EXECUTION_MODE_WINDOW) != 0) {
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+            }
             context.startActivity(i)
             return execution
         }
