@@ -136,6 +136,51 @@ applicationId 和源码包路径是独立的，改包名只需改 `applicationId
 - **文件**: `core/image/capture/BlinkProbe.java`（新增，1px 悬浮窗）、`core/image/capture/ScreenCapturer.java`（`probeLivenessByBlink()`）、`runtime/api/Images.java`（`captureScreen` 判定 + `mLastAliveTime`/`ALIVE_TRUST_MS`）
 - **说明**: 悬浮窗 1px、屏幕左上角、alpha 8/255 肉眼不可见（圆角屏更看不到），app 已具悬浮窗权限（悬浮小球）。实测一天 11 次静止误判全被拦下、零弹窗，抢占约 1s 恢复。本方案取代 #8 的 `captureScreen` 超时销毁逻辑
 
+### 14. PaddleOCR 低概率永久失效（有字却识别为空）+ 小图必崩
+- **现象一（失效）**: 长时间运行后低概率出现「图片里明明有字，`paddle.ocr()` 却返回空数组」，且此后持续为空；重启脚本、或在 AutoJS 与其他 app 间切换几次即可恢复。脚本侧的两次重试防不住（因为不抛异常），logcat 也无任何报错
+- **现象二（崩溃）**: 传入宽高小于约 360x260 的图必崩（AutoX.js 时期即已实测，与是否有字无关），栈顶为 `libc __memset_aarch64` ← `libpaddle_light_api_shared.so`
+- **根因**:
+  - **现象二**：`ocr_ppredictor.cpp` 的 `calc_filtered_boxes` 里 `memcpy(pred_map.data, pred, pred_size * sizeof(float))` 隐含假设「det 输出元素数 == 输入图宽高之积」。小图时不成立（det 有下采样与最小特征图约束，输出反而多于按输入算出的 `pred_map` 容量），于是写穿 `cv::Mat` 堆缓冲区、破坏堆元数据，随后在任意一次分配/清零时才崩（`cv::Mat::zeros` 内部用 memset，故栈顶是 memset）。**每次小图 OCR 都在破坏堆，是否「立刻」崩只取决于堆布局运气**
+  - **现象一**（多个缺陷叠加，按影响排序）:
+    1. **每次 OCR 都在重建整个模型**：`Predictor.initOcr(ctx,thread,useSlim)` 漏了 `isLoaded = true`（另外三个 `init` 重载都有），而 `loadModel` 开头的 `releaseModel()` 会把 `isLoaded` 置 false 且结束时不设回。于是 `isLoaded()` 恒为 false → `Paddle.ocr` 的 `if (!predictor.isLoaded())` 每次都成立 → 每调一次 `paddle.ocr()` 就完整销毁+重新复制 3 个 `.nb` 模型文件+重建 det/rec/cls 一整套。反复 create/destroy paddle-lite predictor 累积劣化，最终某次创建失败后永久返回空
+    2. **每次 loadModel 泄漏一整套 native 模型**：`loadModel` 创建了 `paddlePredictor` 和 `mPaddlePredictorNative` 两个 `OCRPredictorNative` 实例各加载一整套模型，但推理只用前者、`releaseModel()` 也只释放前者，后者直接被覆盖丢弃。叠加缺陷 1 后，**每次 OCR 泄漏一整套模型的 native 内存**
+    3. **失败路径全部静默返回空、无一处抛异常**（脚本侧 try/catch 重试因此完全无效）：`PPredictor::_init` 不检查 `CreatePaddlePredictor` 返回值、无条件返回 `RETURN_OK`；`OCR_PPredictor::init_from_file` 忽略三个子模型的返回值；`native.cpp` 的 JNI `init` 忽略初始化结果、把半残 predictor 的指针交给 Java 层
+    4. **`checkInitSuccess()` 会谎报成功**：末尾 `return initSuccess || retryTime++ >= 5`，自检失败 5 次后无条件返回 true
+    5. **`finalize()` 与推理竞态**：`nativePointer` 非 volatile、`destroy()` 不加锁（`runImage` 却持锁）
+    6. `Paddle.kt` 调 `predictor.runOcr()`，绕过了 `Predictor.ocr()` 里现成的「自检 + 重初始化」循环——这是「paddle 不会自动恢复」的直接原因
+- **修复**:
+  - **越界兜底（两道）**: `calc_filtered_boxes` 的 memcpy 按 `min(pred_size, height*width)` 截断并在尺寸不符时打 logcat；`Predictor.runOcr` 入口新增 `padToMinSize()`，小于 `MIN_OCR_WIDTH/HEIGHT`(360x260) 的图**补黑边**到安全尺寸（内容居左上，故结果坐标无需换算）。选补边而非拒绝，是因为脚本存在合法的窄条截图需求（如只 OCR 屏幕顶部状态区），拒绝会让功能失效。另给 `get_rotate_crop_image` 的 `cv::Rect` 加边界夹紧
+  - `Predictor.loadModel` 成功后置 `isLoaded = true`（缺陷 1 的关键一行）；只创建一个 native predictor（缺陷 2）；创建后校验 `isValid()`，失败则 destroy 并返回 false
+  - `releaseModel()` 统一释放、复位 `initSuccess`/`warmupIterNum`；各 `init` 重载不再无条件硬置 `isLoaded = true`，一律以 `loadModel` 真实返回值为准
+  - cpp 三层逐级校验并向上报错：`_init` 检查 `CreatePaddlePredictor`、`init_from_file` 逐个检查子模型、JNI `init` 失败时 `delete` 并返回 0（新增 `RETURN_ERROR`）。Java 侧据 `nativePointer == 0` 判定不可用
+  - `OCRPredictorNative`: `nativePointer` 加 `@Volatile`、`destroy()` 加锁并先置 0 再 release、移除 `finalize()`、新增 `isValid()`
+  - `checkInitSuccess()` 如实返回；`Predictor.ocr()` 的 `while` 死循环改为最多 `MAX_INIT_ATTEMPT`(3) 次
+  - **空结果自愈交由调用方声明**: `paddle.ocr(img, threadNum, useSlim, expectNonEmpty)` 新增第 4 个参数。默认 false 时空结果视为正常、直接返回（零额外开销）；传 true 表示调用方确信图上必有文字，此时空结果即判定模型疑似失效，`releaseModel()` + 重新初始化后重试一次（等价于「重启脚本」，但进程内自动完成）。两次自动重建之间有 `MIN_REBUILD_INTERVAL_MS`(1min) 冷却，防调用方预期有误时反复重建
+  - 新增 `paddle.release()` JS 接口，供脚本主动回收 native 内存
+- **⚠ 走过的弯路（勿重蹈）**:
+  1. 曾在 `Paddle.ocr` 里用 `checkInitSuccess()` 的内嵌测试图做「空结果自检」来自动判定模型死活。该方案有两个致命问题：① 那张内嵌图仅 **84x57**，远低于安全尺寸，等于在最高频路径上反复触发上述堆越界，**实测运行几分钟即崩溃**；② 脚本靠轮询 OCR 等元素出现，空结果是常态，每次都多跑一次推理纯属浪费（实测日志清一色 `[EMPTY] 自检通过`，无一次真失效）。后又尝试改用「距上次成功识别超过 N 分钟」的时间阈值，同样不可行——脚本可能隔数小时才重新运行，刚开始轮询时为空完全正常，会被误判。**结论：一次 OCR 该不该有结果，只有调用方知道，框架侧无论按次数还是时间去猜都会误判**
+  2. 曾以为修好 `calc_filtered_boxes` 的 memcpy 越界后，`padToMinSize` 补边就可以去掉了。**实测证伪**：`paddle.setPadEnabled(false)` 后用 84x57 连续 OCR，第 5 次即 SIGSEGV，且崩溃栈 `#01` 落在 **`libpaddle_light_api_shared.so`** 内部（而非我们的 `libNative.so`）——即 paddle-lite 库自身对极小输入也有越界，那是预编译第三方 so、无源码可改。**补边是唯一能挡住该路径的手段，不可去除**。（`setPadEnabled` 开关已保留，供将来排查特定尺寸是否危险）
+- **诊断日志（已停用，保留备查）**: `PaddleLog`（异步单线程写、队列满即丢、按 2MB 轮转为 `.1`），落盘到 **`/sdcard/Lvt4AJs/paddle.log`**。全量记录每次 OCR 的尺寸/结果数/耗时/可用堆内存，以及 INIT/PAD/HEAL/ARG/RELEASE 等事件。该问题需长时间运行才复现，靠此文件事后回溯定位。**修复经长期运行验证稳定后，所有 `PaddleLog.log(...)` 调用已注释掉**（类本身保留）——若问题复发或需排查 OCR 相关新问题，取消注释重新编译即可恢复
+- **文件**: `paddleocr/.../PaddleLog.kt`（新增）、`paddleocr/.../Predictor.kt`、`paddleocr/.../OCRPredictorNative.kt`、`paddleocr/src/main/cpp/{common.h,ppredictor.cpp,ocr_ppredictor.cpp,ocr_crnn_process.cpp,native.cpp}`、`autojs/.../runtime/api/Paddle.kt`、`autojs/src/main/assets/modules/__paddle__.js`；脚本侧 `common.js`（`ocr` 的 `expectNonEmpty` 透传）、`AntForest/playground.js`（裁剪高度按 `PaddleOcrMin.h` 兜底）
+- **验证**: 连续 5 次 OCR，`[INIT]` 只出现 1 次（修复前每次 OCR 前都有一整套），耗时由首次 75ms 降至稳定 56~59ms，`freeMem` 在 464~484MB 间波动不单调下降（证实无泄漏）。**长期观察要点**：若 `freeMem` 持续走低或 `[OCR]` 耗时持续攀升，说明泄漏复发；出现 `[HEAL]` 说明自愈被触发过（原问题仍在但已能自恢复）；出现 `[PAD]` 说明有调用方传了过小的图，应回头修脚本侧
+- **注意**: 脚本侧 `common.js` 的 `PaddleOcrMin = {w:360, h:260}` 仍需遵守——native 补边只是兜底，被补边的窄条图识别效果未必理想。`common.ocr` 不带 region 时不会走 `paddleOcrRegionAdjust`，此类调用（如 `playground_browserAd` 裁顶部窄条）需自行保证尺寸
+
+## 日志文件位置速查
+
+排查问题时优先看这些落盘日志（logcat 只在连着 adb 时可见、且不保留历史）：
+
+| 文件 | 内容 | 产生者 |
+|---|---|---|
+| `/sdcard/Lvt4AJs/crash.log` | Java 层未捕获异常堆栈（含线程名、设备指纹） | `CrashHandler.writeCrashLog` |
+| `/sdcard/Lvt4AJs/paddle.log`（+ `.1` 轮转备份） | PaddleOCR 每次调用的尺寸/结果数/耗时/可用内存，及初始化、自愈等事件。**当前已停用**（调用处均已注释，需要时取消注释重编） | `PaddleLog` |
+| `/sdcard/脚本/AntForest/logs/error.*.log` + 同名 `.png` | 脚本自身异常快照（AutoxScripts 项目的 `common.saveErrorLog`） | 脚本侧 |
+
+取日志：`adb shell cat /sdcard/Lvt4AJs/paddle.log` 或 `adb pull /sdcard/Lvt4AJs/`。
+
+**注意**：这些路径均为外部存储根目录下，adb 与文件管理器可直接访问。**不要**改回 `getExternalFilesDir()`（`/sdcard/Android/data/包名/files/`）——Android 11+ 分区存储下该目录既无法用 adb 读取（连 `run-as` 也是 Permission denied）、也无法用文件管理器查看，写了也取不出来。此前 `crash.log` 正是写在那里，且父目录不存在时 `FileWriter` 抛异常被 `catch` 吞掉，导致该文件从未成功写出过（已修，见修复记录 #14）。
+
+native crash（SIGSEGV 等）无法被 Java 的 `UncaughtExceptionHandler` 捕获，只能看系统 tombstone：`adb shell ls /data/tombstones/`（需 root）或 `adb bugreport`。
+
 ## 新增功能
 
 ### floaty 控制系统自带悬浮小球（CircularMenu）

@@ -25,7 +25,15 @@ Java_com_baidu_paddle_lite_demo_ocr_OCRPredictorNative_init(
   conf.mode = str_to_cpu_mode(cpu_mode);
   ppredictor::OCR_PPredictor *orc_predictor =
       new ppredictor::OCR_PPredictor{conf};
-  orc_predictor->init_from_file(det_model_path, rec_model_path, cls_model_path);
+  // 初始化失败必须立刻销毁并返回 0：原实现忽略 init_from_file 的返回值，
+  // 把一个模型未加载成功的 predictor 指针交给 Java 层，之后每次推理都返回空结果，
+  // 且 Java 层无从判断——这正是「OCR 偶发识别不出任何文字」的根因之一
+  if (orc_predictor->init_from_file(det_model_path, rec_model_path,
+                                    cls_model_path) != RETURN_OK) {
+    LOGE("OCR_PPredictor init_from_file failed, det=%s", det_model_path.c_str());
+    delete orc_predictor;
+    return 0;
+  }
   return reinterpret_cast<jlong>(orc_predictor);
 }
 

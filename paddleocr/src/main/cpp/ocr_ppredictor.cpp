@@ -16,34 +16,55 @@ OCR_PPredictor::OCR_PPredictor(const OCR_Config &config) : _config(config) {}
 int OCR_PPredictor::init(const std::string &det_model_content,
                          const std::string &rec_model_content,
                          const std::string &cls_model_content) {
+  // 三个子模型任一创建失败都必须向上报错：原实现忽略各 init_nb 的返回值、
+  // 无条件返回 RETURN_OK，半残的 predictor 会被当成可用，此后 OCR 恒返回空
   _det_predictor = std::unique_ptr<PPredictor>(
       new PPredictor{_config.thread_num, NET_OCR, _config.mode});
-  _det_predictor->init_nb(det_model_content);
+  if (_det_predictor->init_nb(det_model_content) != RETURN_OK) {
+    LOGE("det model init failed");
+    return RETURN_ERROR;
+  }
 
   _rec_predictor = std::unique_ptr<PPredictor>(
       new PPredictor{_config.thread_num, NET_OCR_INTERNAL, _config.mode});
-  _rec_predictor->init_nb(rec_model_content);
+  if (_rec_predictor->init_nb(rec_model_content) != RETURN_OK) {
+    LOGE("rec model init failed");
+    return RETURN_ERROR;
+  }
 
   _cls_predictor = std::unique_ptr<PPredictor>(
       new PPredictor{_config.thread_num, NET_OCR_INTERNAL, _config.mode});
-  _cls_predictor->init_nb(cls_model_content);
+  if (_cls_predictor->init_nb(cls_model_content) != RETURN_OK) {
+    LOGE("cls model init failed");
+    return RETURN_ERROR;
+  }
   return RETURN_OK;
 }
 
 int OCR_PPredictor::init_from_file(const std::string &det_model_path,
                                    const std::string &rec_model_path,
                                    const std::string &cls_model_path) {
+  // 同 init()：逐个校验，任一失败即向上报错
   _det_predictor = std::unique_ptr<PPredictor>(
       new PPredictor{_config.thread_num, NET_OCR, _config.mode});
-  _det_predictor->init_from_file(det_model_path);
+  if (_det_predictor->init_from_file(det_model_path) != RETURN_OK) {
+    LOGE("det model init failed: %s", det_model_path.c_str());
+    return RETURN_ERROR;
+  }
 
   _rec_predictor = std::unique_ptr<PPredictor>(
       new PPredictor{_config.thread_num, NET_OCR_INTERNAL, _config.mode});
-  _rec_predictor->init_from_file(rec_model_path);
+  if (_rec_predictor->init_from_file(rec_model_path) != RETURN_OK) {
+    LOGE("rec model init failed: %s", rec_model_path.c_str());
+    return RETURN_ERROR;
+  }
 
   _cls_predictor = std::unique_ptr<PPredictor>(
       new PPredictor{_config.thread_num, NET_OCR_INTERNAL, _config.mode});
-  _cls_predictor->init_from_file(cls_model_path);
+  if (_cls_predictor->init_from_file(cls_model_path) != RETURN_OK) {
+    LOGE("cls model init failed: %s", cls_model_path.c_str());
+    return RETURN_ERROR;
+  }
   return RETURN_OK;
 }
 /**
@@ -204,7 +225,21 @@ OCR_PPredictor::calc_filtered_boxes(const float *pred, int pred_size,
   const double maxvalue = 1;
 
   cv::Mat pred_map = cv::Mat::zeros(output_height, output_width, CV_32F);
-  memcpy(pred_map.data, pred, pred_size * sizeof(float));
+  // 这里原本是 memcpy(pred_map.data, pred, pred_size * sizeof(float))，
+  // 隐含假设「det 模型输出元素数 == 输入图宽高之积」。该假设在输入图过小时不成立：
+  // det 模型内部有下采样与最小特征图约束，输入太小时输出反而多于按输入算出的 pred_map 容量，
+  // memcpy 遂写穿 cv::Mat 的堆缓冲区，破坏堆元数据，随后在任意一次分配/清零时崩溃
+  // （典型栈顶为 libc 的 __memset_aarch64，因 cv::Mat::zeros 内部用 memset 清零）。
+  // 这正是「传入图片小于约 360x260 就会崩溃」的根因——每次小图 OCR 都在破坏堆，
+  // 只是是否立刻崩取决于越界写恰好损坏了哪块内存。
+  // 此处按实际容量截断，任何情况下都不越界；尺寸不符时记日志便于定位调用方。
+  size_t capacity = (size_t)output_height * (size_t)output_width;
+  size_t copy_num = (size_t)pred_size < capacity ? (size_t)pred_size : capacity;
+  if ((size_t)pred_size != capacity) {
+    LOGE("det output size mismatch: pred_size=%d capacity=%zu (%dx%d), copy %zu",
+         pred_size, capacity, output_width, output_height, copy_num);
+  }
+  memcpy(pred_map.data, pred, copy_num * sizeof(float));
   cv::Mat cbuf_map;
   pred_map.convertTo(cbuf_map, CV_8UC1);
 

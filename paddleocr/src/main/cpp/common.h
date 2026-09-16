@@ -25,7 +25,9 @@
   fprintf(stderr, "[" LOG_TAG "]Error: " format "\n", ##__VA_ARGS__)
 #endif
 
-enum RETURN_CODE { RETURN_OK = 0 };
+// RETURN_ERROR: 模型创建失败。原代码只有 RETURN_OK，各初始化函数无条件返回成功，
+// 导致 paddle-lite 创建失败时上层无从感知，OCR 静默返回空结果
+enum RETURN_CODE { RETURN_OK = 0, RETURN_ERROR = -1 };
 
 enum NET_TYPE { NET_OCR = 900100, NET_OCR_INTERNAL = 991008 };
 

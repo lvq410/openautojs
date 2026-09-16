@@ -13,10 +13,10 @@
 // limitations under the License.
 
 #include "ocr_crnn_process.h"
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <fstream>
-#include <iostream>
 #include <iostream>
 #include <vector>
 
@@ -95,6 +95,12 @@ cv::Mat get_rotate_crop_image(const cv::Mat &srcimage,
   int bottom = int(*std::max_element(y_collect, y_collect + 4));
 
   cv::Mat img_crop;
+  // 裁剪区域必须夹紧到原图范围内：box 坐标由 det 输出经缩放换算而来，
+  // 换算误差可能让它略微越出原图边界，此时 cv::Rect 取子矩阵会抛异常或读越界
+  left = std::max(0, std::min(left, srcimage.cols - 1));
+  top = std::max(0, std::min(top, srcimage.rows - 1));
+  right = std::max(left + 1, std::min(right, srcimage.cols));
+  bottom = std::max(top + 1, std::min(bottom, srcimage.rows));
   srcimage(cv::Rect(left, top, right - left, bottom - top)).copyTo(img_crop);
 
   for (int i = 0; i < points.size(); i++) {

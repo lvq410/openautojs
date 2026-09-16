@@ -22,6 +22,14 @@ template <typename ConfigT> int PPredictor::_init(ConfigT &config) {
   config.set_threads(_thread_num);
   config.set_power_mode(_mode);
   _predictor = paddle::lite_api::CreatePaddlePredictor(config);
+  // 原实现不检查返回值，无条件返回 RETURN_OK。一旦 paddle-lite 创建失败
+  // （内存不足、模型文件损坏等），一个空的 predictor 会被当成初始化成功，
+  // 此后每次推理都在 infer() 里因 _predictor 为空而崩溃或返回空结果。
+  if (!_predictor) {
+    LOGE("CreatePaddlePredictor failed, net_flag=%d thread_num=%d", _net_flag,
+         _thread_num);
+    return RETURN_ERROR;
+  }
   LOGI("paddle instance created");
   return RETURN_OK;
 }
@@ -45,6 +53,12 @@ PredictorInput PPredictor::get_first_input() { return get_input(0); }
 std::vector<PredictorOutput> PPredictor::infer() {
   LOGI("infer Run start %d", _net_flag);
   std::vector<PredictorOutput> results;
+  // _predictor 为空说明初始化失败（正常路径下 _init 已拦截，这里是防御性检查，
+  // 避免任何遗漏路径导致空指针解引用闪退）
+  if (!_predictor) {
+    LOGE("infer called but predictor is null, net_flag=%d", _net_flag);
+    return results;
+  }
   if (!_is_input_get) {
     return results;
   }

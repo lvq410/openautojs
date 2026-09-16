@@ -7,6 +7,7 @@ package org.autojs.autojs.tool;
 
 import android.content.Intent;
 import android.os.Build;
+import android.os.Environment;
 import android.os.Looper;
 import android.util.Log;
 
@@ -111,16 +112,24 @@ public class CrashHandler extends CrashReport.CrashHandleCallback implements Unc
     }
 
     /**
-     * 将 Java 层崩溃堆栈追加写入 app 自身外部存储目录下的 crash.log，
-     * 路径形如 /sdcard/Android/data/com.lvt4j.ajs/files/crash.log，
-     * 便于事后排查闪退原因（Bugly 依赖网络上报，本地文件更可靠）。
+     * 将 Java 层崩溃堆栈追加写入 /sdcard/Lvt4AJs/crash.log，便于事后排查闪退原因
+     * （Bugly 依赖网络上报，本地文件更可靠）。
+     * <p>
+     * 原实现写在 {@code getExternalFilesDir(null)}（即 /sdcard/Android/data/包名/files/）下，
+     * 有两个问题：一是该目录不存在时 FileWriter 直接抛异常、被 catch 吞掉，日志从未写成过；
+     * 二是 Android 11+ 分区存储下 Android/data/ 无法用 adb 或文件管理器访问，写了也取不出来。
+     * 现改为写外部存储根目录下的 Lvt4AJs/，并显式 mkdirs，与 PaddleOCR 诊断日志同目录。
+     * <p>
      * native crash（SIGSEGV 等）无法被 Java UncaughtExceptionHandler 捕获，
      * 仍由系统 tombstone 记录。
      */
     private void writeCrashLog(Thread thread, Throwable ex) {
         try {
-            File dir = GlobalAppContext.get().getExternalFilesDir(null);
-            if (dir == null) return;
+            File dir = new File(Environment.getExternalStorageDirectory(), "Lvt4AJs");
+            if (!dir.exists() && !dir.mkdirs()) {
+                Log.e(TAG, "崩溃日志目录创建失败: " + dir.getAbsolutePath());
+                return;
+            }
             File logFile = new File(dir, "crash.log");
             PrintWriter pw = new PrintWriter(new FileWriter(logFile, true));
             String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault()).format(new Date());
@@ -130,8 +139,9 @@ public class CrashHandler extends CrashReport.CrashHandleCallback implements Unc
             pw.println();
             pw.flush();
             pw.close();
-        } catch (Exception ignore) {
-            //写日志失败不能影响原有崩溃处理流程
+        } catch (Exception e) {
+            //写日志失败不能影响原有崩溃处理流程，但要留痕，否则问题会像原来一样被完全掩盖
+            Log.e(TAG, "写崩溃日志失败", e);
         }
     }
 
