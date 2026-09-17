@@ -21,6 +21,7 @@ import com.stardust.enhancedfloaty.FloatyService;
 import com.stardust.enhancedfloaty.ResizableExpandableFloatyWindow;
 import com.stardust.util.UiHandler;
 import com.stardust.util.ViewUtil;
+import com.stardust.util.WindowLayoutCompat;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -89,6 +90,16 @@ public class ConsoleImpl extends AbstractConsole {
         mConsoleFloaty = new ConsoleFloaty(this);
         mGlobalConsole = globalConsole;
         mFloatyWindow = new ResizableExpandableFloatyWindow(mConsoleFloaty) {
+            @Override
+            protected WindowManager.LayoutParams onCreateWindowLayoutParams() {
+                //与 floaty.window / floaty.rawWindow 保持同一套坐标系：
+                //console.setPosition(x,y) 是公开 JS 接口，脚本传的是屏幕物理绝对坐标。
+                //父类实现在第三方 aar 内不可改，只能拿到结果再加工。
+                WindowManager.LayoutParams lp = super.onCreateWindowLayoutParams();
+                WindowLayoutCompat.applyAbsoluteScreenCoordinates(lp);
+                return lp;
+            }
+
             @Override
             public void onCreate(FloatyService service, WindowManager manager) {
                 super.onCreate(service, manager);

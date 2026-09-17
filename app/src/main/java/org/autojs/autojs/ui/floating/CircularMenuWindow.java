@@ -12,6 +12,7 @@ import com.stardust.enhancedfloaty.FloatyService;
 import com.stardust.enhancedfloaty.FloatyWindow;
 import com.stardust.enhancedfloaty.WindowBridge;
 import com.stardust.util.ScreenMetrics;
+import com.stardust.util.WindowLayoutCompat;
 
 import org.autojs.autojs.ui.floating.gesture.BounceDragGesture;
 
@@ -107,6 +108,11 @@ public class CircularMenuWindow extends FloatyWindow {
                 WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
                 FloatyWindowManger.getWindowType(), 520, -3);
         layoutParams.gravity = Gravity.LEFT | Gravity.TOP;
+        //校正坐标系，使小球位置以屏幕物理左上角为原点。
+        //这与 OrientationAwareWindowBridge 的屏幕尺寸改动是【配套】的，必须同批次生效：
+        //改动前是「lp.x 偏内 152px」与「getScreenWidth() 少算 152px」两个错误互相抵消，
+        //只改一边会让贴边位置比现在更错。
+        WindowLayoutCompat.applyAbsoluteScreenCoordinates(layoutParams);
         return layoutParams;
     }
 

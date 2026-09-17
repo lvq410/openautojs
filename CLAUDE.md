@@ -165,6 +165,53 @@ applicationId 和源码包路径是独立的，改包名只需改 `applicationId
 - **验证**: 连续 5 次 OCR，`[INIT]` 只出现 1 次（修复前每次 OCR 前都有一整套），耗时由首次 75ms 降至稳定 56~59ms，`freeMem` 在 464~484MB 间波动不单调下降（证实无泄漏）。**长期观察要点**：若 `freeMem` 持续走低或 `[OCR]` 耗时持续攀升，说明泄漏复发；出现 `[HEAL]` 说明自愈被触发过（原问题仍在但已能自恢复）；出现 `[PAD]` 说明有调用方传了过小的图，应回头修脚本侧
 - **注意**: 脚本侧 `common.js` 的 `PaddleOcrMin = {w:360, h:260}` 仍需遵守——native 补边只是兜底，被补边的窄条图识别效果未必理想。`common.ocr` 不带 region 时不会走 `paddleOcrRegionAdjust`，此类调用（如 `playground_browserAd` 裁顶部窄条）需自行保证尺寸
 
+### 15. 悬浮窗坐标非屏幕绝对坐标 + 主界面横屏挖孔黑边
+- **现象一（坐标偏移）**: 竖屏下 `setPosition(x, 0)` 的窗口顶部不在屏幕顶部，而在状态栏底部（本机偏 152px）；横屏时 x 还额外偏一个挖孔宽度
+- **现象二（黑边）**: 横屏下主界面左侧有一片约 152px 的黑边，自带悬浮小球也不贴屏幕边、而是贴那片黑边的右侧
+- **根因**: `WindowManager.LayoutParams` 的 x/y **不是屏幕绝对坐标，而是相对窗口 parent frame 的偏移**，而 parent frame 被系统按两个源内缩：
+  - 竖屏 top=152：`fitInsetsTypes` 默认含 STATUS_BARS
+  - 横屏 left=152：未声明 `layoutInDisplayCutoutMode`，窗口被挤出挖孔安全区
+  代码里只设了 `FLAG_LAYOUT_NO_LIMITS`——这在 Android 10 及以前够用，但 **Android 11(API30) 起窗口 frame 改由 `fitInsetsTypes` 决定**，NO_LIMITS 只解除 display frame 限制。实测 `BlinkProbe` 已带该 flag，请求 `lp=(1,0)` 仍被推到 `frame=[153,152]`（当时 `parent=[152,152][2772,1280]`，正好 parent+lp）——这也反证了 **parent 归零后 `frame == lp`**，故修复后 lp.x/y 天然就是绝对坐标，调用方无需换算
+  主界面黑边是同一个病：`MainActivity` 的 `mAttrs` 里 `layoutInDisplayCutoutMode` 字段整个缺失 → `Requested w=2620`、`w806dp`；而声明了 cutout 模式的系统窗口都拿到完整 2772/`w853dp`。`letterBoxed=false`，**不是 max_aspect 信箱，是纯 cutout 内缩，可彻底消除**
+- **修复**:
+  - 新增 `common/.../WindowLayoutCompat.java`，两个方法**刻意分开**：
+    - `applyAbsoluteScreenCoordinates(lp)`（悬浮窗用）：`layoutInDisplayCutoutMode=ALWAYS` + `setFitInsetsTypes(0)` + `NO_LIMITS`，带 API 28/30 版本守卫
+    - `applyDrawIntoCutout(window)`（Activity 用）：**只**设 `SHORT_EDGES`。绝不能给 Activity 用前者——一旦关掉 fitInsetsTypes，WindowInsets 不再正常派发，Material3 的 TopAppBar 会失去状态栏避让、顶栏直接顶进状态栏
+    - `getRealScreenWidth/Height(wm)`：用 `getRealMetrics()` 取物理尺寸
+  - 六处窗口接入：`RawWindow`、`BaseResizableFloatyWindow`、`BlinkProbe`、`CircularMenuWindow`、`FullScreenFloatyWindow`、`ConsoleImpl`（后两者与 aar 父类打交道，只能 `super.onCreateWindowLayoutParams()` 拿到结果再加工）
+  - `OrientationAwareWindowBridge` 的 `getScreenWidth/Height` 改用 `getRealMetrics()`，并**删掉原有的横竖屏宽高互换**——`getRealMetrics()` 自带旋转感知，保留互换会变成双重交换。原先那段互换本就是为绕开 aar 中 `DefaultImpl` 缓存 DisplayMetrics 永不刷新的脏值而写的补丁
+  - `MainActivity.onCreate` 调 `applyDrawIntoCutout(window)`。**不改主题**（`AppTheme` 是 manifest 里的 application 级主题，改它会波及编辑器/设置页等全部 Activity），**不动 Compose 树**（竖屏顶栏当前正常，靠 Material3 组件自带的 `windowInsets` 避让）
+- **⚠ 注意事项**:
+  - `applyAbsoluteScreenCoordinates` **必须在 flags 全部设置完之后调用**：框架会从 `FLAG_FULLSCREEN`/`FLAG_LAYOUT_IN_SCREEN` 反推 fitInsetsTypes，`setFitInsetsTypes()` 置上 `FIT_INSETS_CONTROLLED` 后才停止反推。挪到 `new LayoutParams(...)` 之前会失效
+  - `CircularMenuWindow` 与 `OrientationAwareWindowBridge` **必须同批次改**：改动前是「lp.x 偏内 152」与「getScreenWidth() 少算 152」两个错误互相抵消，只改一边会让小球贴边比原来更错
+  - 按需求「横屏完全铺满、内容不避让」，刻意**不加** displayCutout padding，横屏下顶栏菜单按钮可能被挖孔压住，属已知取舍
+  - `Floaty.getX/getY`、`device.width/height`、布局分析器的 `mStatusBarHeight` 三处**均无需改动**：前两者本就读绝对值（`Device.width/height` 是 `static final`，取自 `ScreenMetrics` 的 `getRealMetrics()`）；后者靠 `getLocationOnScreen()` 动态取偏移，窗口归零后自动退化为恒等变换，顺带修掉横屏 X 方向从未补偿的老 bug
+- **文件**: `common/.../WindowLayoutCompat.java`（新增）、`autojs/.../core/floaty/{RawWindow,BaseResizableFloatyWindow}.java`、`autojs/.../core/image/capture/BlinkProbe.java`、`autojs/.../core/console/ConsoleImpl.java`、`app/.../ui/floating/{CircularMenuWindow,FullScreenFloatyWindow,OrientationAwareWindowBridge}.java`、`app/.../ui/main/MainActivity.kt`；脚本侧 `AutoxScripts` 见下
+- **脚本侧连带改动（AutoxScripts）**: 坐标系变了，此前手工补偿过的地方必须同步清理
+  - `王者换装/Redmi_25053RT47C/resources.js` 的 `offset:{x:120,y:0}` 删除，`王者换装.js` 里 29 处 `+Res.offset.x/y` 一并去掉。点位数值**不用重标**（存的是悬浮窗坐标、靠 offset 换算到屏幕坐标，两者同步归零后抵消），顺带修掉 120 与真值 152 之间一直存在的 32px 误差
+  - 蚂蚁脚本 17 处硬编码 y 值 **+152**（这些 y 是为避免状态提示窗遮挡待识图元素而逐个调出来的，上移后避让关系会失效）
+  - 3 处 `device.height - w.getHeight() - 100` 的底部对齐窗口（`forest.js:29`、`goldBean.js:29`、`manor.js:339`）**保持不变**——`device.height` 是物理全高 2772 不受影响，这类窗口此前实际落点是 `2772-高-100+152`、超出屏幕底部 152px 下半截被裁，一直是错的，修完才第一次真正对齐
+  - `debug/坐标查看.js` 按 rotation 加 `getVirtualBarHeigh()` 的 switch 删除（修完会变成重复补偿）
+- **验证**: 实测 `MainActivity` 横屏 `Requested w=2772`（此前 2620）；悬浮窗/小球 `parent=[0,0][2772,1280]`（此前 `[152,152]`）；小球贴左边时 frame left 为 `-34`（`-hiddenWidth`，即真正贴到物理左缘）
+
+### 16. 横屏启动 app 后，横屏脚本截图变成竖图
+- **现象**: 横屏脚本（`common.setCaptureScreenLandscape(true)`，如王者换装）日志刷 `captureScreenx: 截图方向(竖)与预期(横)不符，重新请求截图权限`，反复重新申请截屏权限
+- **根因**: `ScreenMetrics.getOrientationAwareScreenWidth/Height()` 原实现是「横屏就把 deviceScreenWidth/Height 交换返回」，**隐含假设这两个字段存的是竖屏基准值（短边/长边）**。但 `initIfNeeded()`（`ScreenMetrics.java:25`）用 `getRealMetrics()` 取值，存的是**初始化那一刻的方向**，且由 `AutoJs.java:155` 的 `onActivityCreated` 触发、靠 `initialized` 标志**整个进程只取一次、转屏不刷新**。于是：
+  - 竖屏启动 app（常态）→ 存 `W=1280,H=2772`，符合假设，一切正常
+  - **横屏启动 app** → 存 `W=2772,H=1280`，交换逻辑全反 → `getOrientationAwareScreenWidth(LANDSCAPE)` 返回 1280 → `ScreenCapturer.refreshVirtualDisplay` 按 `1280x2772` 建了个**竖向** VirtualDisplay → 横屏脚本截出竖图
+  一旦存错，**整个进程生命周期内**所有横屏截图都是竖的，直到 app 重启
+- **修复**: `getOrientationAware*` 改用 `min/max` 归一化取短边/长边，不再依赖存值时的方向。**只改这两个方法，不动 `getDeviceScreenWidth/Height`**——后者被 `Device.width/height`(`static final`) 使用，改动会波及所有脚本的坐标语义
+- **文件**: `common/src/main/java/com/stardust/util/ScreenMetrics.java`
+- **验证**（横屏下重启 app 再跑横屏脚本）:
+
+  | | 修复前 | 修复后 |
+  |---|---|---|
+  | `getOrientationAwareScreenWidth(LANDSCAPE)` | 1280 ❌ | 2772 ✅ |
+  | `captureScreen()` 尺寸 | 1280x2772（竖）❌ | 2772x1280（横）✅ |
+
+  注意 `deviceScreenWidth/Height` 修复后仍存横屏值（2772/1280）——修复不是靠「存对值」，而是靠归一化让结果与存值方向无关，因此也顺带免疫了「转屏后不刷新」这个隐患
+- **说明**: 与修复记录 #15 的悬浮窗坐标系问题**无关**，是独立的既有 bug，只因排查 #15 时 force-stop 了 app、恰好在横屏下重启才暴露出来。影响范围不限于王者脚本：任何方向与 app 初始化方向相反的截图请求都会中招
+
 ## 日志文件位置速查
 
 排查问题时优先看这些落盘日志（logcat 只在连着 adb 时可见、且不保留历史）：

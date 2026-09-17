@@ -44,6 +44,7 @@ import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.google.accompanist.systemuicontroller.rememberSystemUiController
 import com.stardust.app.permission.DrawOverlaysPermission
 import com.stardust.util.IntentUtil
+import com.stardust.util.WindowLayoutCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.autojs.autojs.Pref
@@ -86,6 +87,24 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        //横屏下主界面左侧 152px 黑边的修复。
+        //根因（dumpsys 实测）：MainActivity 的 mAttrs 里 layoutInDisplayCutoutMode 字段整个缺失（即默认 DEFAULT），
+        //系统于是把 appBounds 从挖孔边内缩：mAppBounds=Rect(152,0-2772,1280)、Requested w=2620、w806dp；
+        //而同屏声明了 cutoutMode 的系统窗口都拿到完整 2772/w853dp。letterBoxed=false —— 不是 max_aspect 信箱，
+        //就是纯 cutout 内缩，所以可以彻底消除。
+        //
+        //为何运行期设而不在 styles.xml 加属性：AppTheme 是 manifest 里的 application 级主题，
+        //改它会波及编辑器、设置页等全部 Activity；而本项目 SplashActivity 已用同样的运行期写法在同机型验证生效
+        //（targetSdk=26 不是门槛）。
+        //
+        //注意这里用的是只解除挖孔内缩的 applyDrawIntoCutout，而非悬浮窗那套 applyAbsoluteScreenCoordinates——
+        //Activity 一旦被加上 NO_LIMITS / setFitInsetsTypes(0)，WindowInsets 将不再正常派发，
+        //Material3 的 TopAppBar 会失去状态栏避让、顶栏直接顶进状态栏。
+        //
+        //按需求「横屏完全铺满、内容不做避让」，故刻意不加 displayCutout padding，
+        //接受横屏下顶栏菜单按钮可能被挖孔压住。
+        WindowLayoutCompat.applyDrawIntoCutout(window)
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.statusBarColor = Color.Transparent.toArgb()

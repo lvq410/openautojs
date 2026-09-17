@@ -10,6 +10,8 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
 
+import com.stardust.util.WindowLayoutCompat;
+
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -72,6 +74,10 @@ public class BlinkProbe {
         lp.gravity = Gravity.TOP | Gravity.LEFT;
         lp.x = 0;
         lp.y = 0;
+        //校正坐标系后探针才真正落在物理左上角。此前虽已有 FLAG_LAYOUT_NO_LIMITS，
+        //实测仍被 parent frame 推到 (152,152)——NO_LIMITS 只解除 display frame 限制，挡不住 insets 内缩。
+        //判活原理是「挪 1px 强制源屏幕重新合成」，与探针绝对位置无关，故位置变化不影响功能。
+        WindowLayoutCompat.applyAbsoluteScreenCoordinates(lp);
         sWm.addView(v, lp);
         sView = v;
         sLp = lp;

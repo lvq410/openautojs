@@ -59,20 +59,27 @@ public class ScreenMetrics {
         return deviceScreenDensity;
     }
 
+    /**
+     * 返回指定方向下的屏幕宽度。
+     *
+     * 注意不能直接用 deviceScreenWidth/Height 做「横屏就交换」的判断：
+     * initIfNeeded 用 getRealMetrics() 取值，存的是【初始化那一刻】的方向，
+     * 若 app 恰好在横屏下启动，deviceScreenWidth 存的就是长边（如 2772）而非短边，
+     * 原先「横屏返回 getDeviceScreenHeight()」的写法会把宽高返反，
+     * 导致 ScreenCapturer 建出方向相反的 VirtualDisplay、截图变成竖图。
+     * 故这里改用 min/max 归一化，与初始化时的方向无关。
+     */
     public static int getOrientationAwareScreenWidth(int orientation) {
-        if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
-            return getDeviceScreenHeight();
-        } else {
-            return getDeviceScreenWidth();
-        }
+        int shortSide = Math.min(deviceScreenWidth, deviceScreenHeight);
+        int longSide = Math.max(deviceScreenWidth, deviceScreenHeight);
+        return orientation == Configuration.ORIENTATION_LANDSCAPE ? longSide : shortSide;
     }
 
+    /** 返回指定方向下的屏幕高度。说明同 {@link #getOrientationAwareScreenWidth(int)}。 */
     public static int getOrientationAwareScreenHeight(int orientation) {
-        if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
-            return getDeviceScreenWidth();
-        } else {
-            return getDeviceScreenHeight();
-        }
+        int shortSide = Math.min(deviceScreenWidth, deviceScreenHeight);
+        int longSide = Math.max(deviceScreenWidth, deviceScreenHeight);
+        return orientation == Configuration.ORIENTATION_LANDSCAPE ? shortSide : longSide;
     }
 
     public static int scaleX(int x, int width) {

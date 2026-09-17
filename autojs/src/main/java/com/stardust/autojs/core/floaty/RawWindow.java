@@ -16,6 +16,7 @@ import com.stardust.enhancedfloaty.FloatyService;
 import com.stardust.enhancedfloaty.FloatyWindow;
 import com.stardust.enhancedfloaty.WindowBridge;
 import com.stardust.enhancedfloaty.util.WindowTypeCompat;
+import com.stardust.util.WindowLayoutCompat;
 
 public class RawWindow extends FloatyWindow {
 
@@ -77,6 +78,10 @@ public class RawWindow extends FloatyWindow {
                 flags,
                 PixelFormat.TRANSLUCENT);
         layoutParams.gravity = Gravity.TOP | Gravity.START;
+        //校正坐标系：使 setPosition(x,y) 的 x/y 等于屏幕物理绝对坐标。
+        //必须放在 flags 设置完成之后——框架会从 FLAG_FULLSCREEN 等旧 flag 反推 fitInsetsTypes，
+        //setFitInsetsTypes 置上 FIT_INSETS_CONTROLLED 后才会停止反推。
+        WindowLayoutCompat.applyAbsoluteScreenCoordinates(layoutParams);
         return layoutParams;
     }
 

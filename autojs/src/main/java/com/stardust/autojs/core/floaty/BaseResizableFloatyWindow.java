@@ -19,6 +19,7 @@ import com.stardust.enhancedfloaty.ResizableFloatyWindow;
 import com.stardust.enhancedfloaty.WindowBridge;
 import com.stardust.enhancedfloaty.gesture.DragGesture;
 import com.stardust.enhancedfloaty.gesture.ResizeGesture;
+import com.stardust.util.WindowLayoutCompat;
 
 /**
  * Created by Stardust on 2017/12/5.
@@ -51,6 +52,15 @@ public class BaseResizableFloatyWindow extends ResizableFloatyWindow {
     }
 
     @Override
+    protected WindowManager.LayoutParams onCreateWindowLayoutParams() {
+        //父类 ResizableFloatyWindow 在第三方 aar（com.github.hyb1996:EnhancedFloaty:0.31）内无源码，
+        //只能拿到它建好的 LayoutParams 再加工：校正坐标系，使 setPosition(x,y) 等于屏幕物理绝对坐标。
+        WindowManager.LayoutParams params = super.onCreateWindowLayoutParams();
+        WindowLayoutCompat.applyAbsoluteScreenCoordinates(params);
+        return params;
+    }
+
+    @Override
     protected WindowBridge onCreateWindowBridge(WindowManager.LayoutParams params) {
         return new WindowBridge.DefaultImpl(params, getWindowManager(), getWindowView()) {
             @Override
@@ -66,6 +76,25 @@ public class BaseResizableFloatyWindow extends ResizableFloatyWindow {
             @Override
             public void updatePosition(int x, int y) {
                 super.updatePosition(x - mOffset, y - mOffset);
+            }
+
+            /**
+             * 屏幕尺寸改用物理全屏值。
+             *
+             * aar 里的 DefaultImpl 用 getMetrics()（应用可用区，本机横屏 2620 = 2772-152），
+             * 且把 DisplayMetrics 缓存成字段永不刷新、转屏后是脏值。
+             * 窗口坐标既已改为 0..2772 的绝对坐标，依赖屏幕尺寸的拖拽/缩放边界也必须同步换算基准，
+             * 否则窗口拖到右侧会提前 152px 被"卡住"。
+             */
+            @Override
+            public int getScreenWidth() {
+                return WindowLayoutCompat.getRealScreenWidth(getWindowManager());
+            }
+
+            /** 说明同 {@link #getScreenWidth()}。 */
+            @Override
+            public int getScreenHeight() {
+                return WindowLayoutCompat.getRealScreenHeight(getWindowManager());
             }
         };
     }
