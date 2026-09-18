@@ -167,6 +167,26 @@ public class Floaty {
             runWithWindow(() -> mWindow.setTouchable(touchable));
         }
 
+        /**
+         * 临时隐藏/显示悬浮窗，不销毁窗口，可反复切换。
+         * 区别于 close()：close() 后无法再显示，只能重建。
+         */
+        public void setVisible(boolean visible) {
+            runWithWindow(() -> mWindow.setWindowVisible(visible));
+        }
+
+        public boolean isVisible() {
+            return mWindow != null && mWindow.isWindowVisible();
+        }
+
+        public void hide() {
+            setVisible(false);
+        }
+
+        public void show() {
+            setVisible(true);
+        }
+
         private void runWithWindow(Runnable r) {
             if (mWindow == null)
                 return;
@@ -294,6 +314,53 @@ public class Floaty {
 
         public boolean isAdjustEnabled() {
             return mWindow.isAdjustEnabled();
+        }
+
+        /** 单独控制左上角移动光标（拖动改变位置） */
+        public void setMoveEnabled(boolean enabled) {
+            runWithWindow(() -> mWindow.setMoveEnabled(enabled));
+        }
+
+        public boolean isMoveEnabled() {
+            return mWindow.isMoveEnabled();
+        }
+
+        /** 单独控制右下角缩放手柄（拖动改变大小） */
+        public void setResizeEnabled(boolean enabled) {
+            runWithWindow(() -> mWindow.setResizeEnabled(enabled));
+        }
+
+        public boolean isResizeEnabled() {
+            return mWindow.isResizeEnabled();
+        }
+
+        /** 单独控制右上角关闭按钮 */
+        public void setCloseEnabled(boolean enabled) {
+            runWithWindow(() -> mWindow.setCloseEnabled(enabled));
+        }
+
+        public boolean isCloseEnabled() {
+            return mWindow.isCloseEnabled();
+        }
+
+        /**
+         * 临时隐藏/显示悬浮窗，不销毁窗口，可反复切换。
+         * 区别于 close()：close() 后无法再显示，只能重建。
+         */
+        public void setVisible(boolean visible) {
+            runWithWindow(() -> mWindow.setWindowVisible(visible));
+        }
+
+        public boolean isVisible() {
+            return mWindow != null && mWindow.isWindowVisible();
+        }
+
+        public void hide() {
+            setVisible(false);
+        }
+
+        public void show() {
+            setVisible(true);
         }
 
         public void exitOnClose() {

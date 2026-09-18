@@ -134,6 +134,55 @@ try {
 如果enabled为true，则在悬浮窗左上角、右上角显示可供位置、大小调整的标示，就像控制台一样；
 如果enabled为false，则隐藏上述标示。
 
+本方法是下面三个开关的合集，一次性同时控制移动光标、缩放手柄、关闭按钮。若只想启用其中某一项，用下面的独立开关。
+
+## window.setMoveEnabled(enabled) / window.isMoveEnabled()
+* `enabled` {boolean} 是否显示左上角的移动光标
+
+单独控制左上角的移动光标（拖动它改变悬浮窗位置）。
+
+## window.setResizeEnabled(enabled) / window.isResizeEnabled()
+* `enabled` {boolean} 是否显示右下角的缩放手柄
+
+单独控制右下角的缩放手柄（拖动它改变悬浮窗大小）。
+
+## window.setCloseEnabled(enabled) / window.isCloseEnabled()
+* `enabled` {boolean} 是否显示右上角的关闭按钮
+
+单独控制右上角的关闭按钮。
+
+例如，只允许拖动位置、不允许缩放和关闭：
+```js
+w.setMoveEnabled(true);
+w.setResizeEnabled(false);
+w.setCloseEnabled(false);
+```
+
+## window.hide() / window.show() / window.setVisible(visible)
+* `visible` {boolean} 是否显示
+
+临时隐藏或显示悬浮窗，**窗口本身不销毁**，可反复切换。
+
+与`close()`的区别：`close()`会销毁窗口并注销，之后无法再显示，要再用只能重新创建（连带重新绑定所有事件监听）；而本方法只切换可见性，位置、大小、三个调整控件各自的状态、以及所有已注册的事件监听全部原样保留。
+
+适合"脚本运行期间临时藏起悬浮窗以免遮挡识图、结束后还原"这类场景：
+
+```js
+w.hide();
+try {
+    // ... 截图、识别、点击 ...
+} finally {
+    w.show();
+}
+```
+
+注意：隐藏期间根视图不参与测量，`getWidth()`/`getHeight()`会返回0（`getX()`/`getY()`读的是布局参数，不受影响）。
+
+## window.isVisible()
+* 返回 {boolean}
+
+返回悬浮窗当前是否处于显示状态。
+
 ## window.setPosition(x, y)
 * `x` {number} x
 * `x` {number} y
@@ -166,7 +215,7 @@ try {
 
 关闭悬浮窗。如果悬浮窗已经是关闭状态，则此函数将不执行任何操作。
 
-被关闭后的悬浮窗不能再显示。
+被关闭后的悬浮窗不能再显示。如果只是想临时藏起来、之后还要再用，请用`hide()`/`show()`。
 
 ## window.exitOnClose()
 
@@ -241,11 +290,21 @@ setTimeout(()=>{
 
 返回悬浮窗高度。
 
+## window.hide() / window.show() / window.setVisible(visible)
+* `visible` {boolean} 是否显示
+
+临时隐藏或显示悬浮窗，**窗口本身不销毁**，可反复切换。位置、大小、触摸开关以及所有已注册的事件监听全部原样保留。说明同`FloatyWindow`章节的同名方法。
+
+## window.isVisible()
+* 返回 {boolean}
+
+返回悬浮窗当前是否处于显示状态。
+
 ## window.close()
 
 关闭悬浮窗。如果悬浮窗已经是关闭状态，则此函数将不执行任何操作。
 
-被关闭后的悬浮窗不能再显示。
+被关闭后的悬浮窗不能再显示。如果只是想临时藏起来、之后还要再用，请用`hide()`/`show()`。
 
 ## window.exitOnClose()
 

@@ -114,20 +114,79 @@ public class BaseResizableFloatyWindow extends ResizableFloatyWindow {
         mCloseButton.setOnClickListener(listener);
     }
 
+    /**
+     * 同时启停「移动光标、缩放手柄、关闭按钮」三个调整控件。
+     * 保留此方法是为兼容既有脚本；只想控制其中某一项时，用
+     * {@link #setMoveEnabled}/{@link #setResizeEnabled}/{@link #setCloseEnabled}。
+     */
     public void setAdjustEnabled(boolean enabled) {
-        if (!enabled) {
-            getMoveCursor().setVisibility(View.GONE);
-            getResizer().setVisibility(View.GONE);
-            mCloseButton.setVisibility(View.GONE);
-        } else {
-            getMoveCursor().setVisibility(View.VISIBLE);
-            getResizer().setVisibility(View.VISIBLE);
-            mCloseButton.setVisibility(View.VISIBLE);
-        }
+        setMoveEnabled(enabled);
+        setResizeEnabled(enabled);
+        setCloseEnabled(enabled);
     }
 
+    /**
+     * 三个调整控件中任意一个可见，即认为「调整已启用」。
+     *
+     * 取「任一」而非「全部」，是为了让既有的 setAdjustEnabled(!isAdjustEnabled()) 切换写法，
+     * 在只单独开了其中某一项的情况下也能一次性全部关掉（若取「全部」则会变成再开一次）。
+     */
     public boolean isAdjustEnabled() {
-        return getMoveCursor().getVisibility() == View.VISIBLE;
+        return isMoveEnabled() || isResizeEnabled() || isCloseEnabled();
+    }
+
+    /** 左上角移动光标：拖动它改变悬浮窗位置 */
+    public void setMoveEnabled(boolean enabled) {
+        setViewVisible(getMoveCursor(), enabled);
+    }
+
+    public boolean isMoveEnabled() {
+        return isViewVisible(getMoveCursor());
+    }
+
+    /** 右下角缩放手柄：拖动它改变悬浮窗大小 */
+    public void setResizeEnabled(boolean enabled) {
+        setViewVisible(getResizer(), enabled);
+    }
+
+    public boolean isResizeEnabled() {
+        return isViewVisible(getResizer());
+    }
+
+    /** 右上角关闭按钮：点击它关闭（销毁）悬浮窗 */
+    public void setCloseEnabled(boolean enabled) {
+        setViewVisible(mCloseButton, enabled);
+    }
+
+    public boolean isCloseEnabled() {
+        return isViewVisible(mCloseButton);
+    }
+
+    /**
+     * 临时隐藏/显示整个悬浮窗，窗口本身不销毁。
+     *
+     * 与 {@link #close()} 的区别：close() 会 removeView 并从 FloatyService 注销，之后无法再显示，
+     * 要再用只能重建；本方法只切换根视图可见性，位置、大小、三个调整控件各自的状态、
+     * 以及所有已注册的事件监听全部原样保留，可反复切换。
+     *
+     * 注意：隐藏期间根视图不参与测量，getWidth()/getHeight() 会返回 0
+     * （getX()/getY() 读的是 LayoutParams，不受影响）。
+     */
+    public void setWindowVisible(boolean visible) {
+        setViewVisible(getWindowView(), visible);
+    }
+
+    public boolean isWindowVisible() {
+        return isViewVisible(getWindowView());
+    }
+
+    private static void setViewVisible(View view, boolean visible) {
+        if (view == null) return;
+        view.setVisibility(visible ? View.VISIBLE : View.GONE);
+    }
+
+    private static boolean isViewVisible(View view) {
+        return view != null && view.getVisibility() == View.VISIBLE;
     }
 
     @Override

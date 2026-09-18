@@ -108,4 +108,25 @@ public class RawWindow extends FloatyWindow {
         updateWindowLayoutParams(windowLayoutParams);
     }
 
+    /**
+     * 临时隐藏/显示整个悬浮窗，窗口本身不销毁。
+     *
+     * 与 {@link #close()} 的区别：close() 会 removeView 并从 FloatyService 注销，之后无法再显示，
+     * 要再用只能重建；本方法只切换根视图可见性，位置、大小、触摸开关以及所有已注册的事件监听
+     * 全部原样保留，可反复切换。
+     *
+     * 注意：隐藏期间根视图不参与测量，getWidth()/getHeight() 会返回 0
+     * （getX()/getY() 读的是 LayoutParams，不受影响）。
+     */
+    public void setWindowVisible(boolean visible) {
+        View windowView = getWindowView();
+        if (windowView == null) return;
+        windowView.setVisibility(visible ? View.VISIBLE : View.GONE);
+    }
+
+    public boolean isWindowVisible() {
+        View windowView = getWindowView();
+        return windowView != null && windowView.getVisibility() == View.VISIBLE;
+    }
+
 }
