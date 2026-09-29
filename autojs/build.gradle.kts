@@ -70,6 +70,16 @@ dependencies {
     api(project(":paddleocr"))
     // libs
     api(fileTree("../app/libs"){include("dx.jar", "rhino-1.7.14-jdk7.jar")})
+    //【依赖来源说明】此库只发布在 JitPack（Maven Central 上不存在 cz.adaptech 这个 group，
+    // 官方 README 也只给 JitPack 的接入方式），且本项目用的 4.1.1 是老版本。
+    // JitPack 对久未被拉取的老版本是惰性重建的：首次请求会返回 500（而非 404），
+    // 后台重建完成后再请求同一 URL 即可正常下载（实测重建后 4 秒下完，11.9MB）。
+    // 所以遇到 500 不要误判为"依赖已下架"，稍等重试，或先查构建状态：
+    //   https://jitpack.io/api/builds/cz.adaptech/tesseract4android   （4.1.1 应为 "ok"）
+    // 若 JitPack 长期不可用，可手动下载 aar+pom 放进本地 maven 仓库兜底
+    // （mavenLocal() 已在仓库列表首位）：
+    //   https://jitpack.io/cz/adaptech/tesseract4android/4.1.1/tesseract4android-4.1.1.{aar,pom}
+    //   → ~/.m2/repository/cz/adaptech/tesseract4android/4.1.1/
     api("cz.adaptech:tesseract4android:4.1.1")
     api("com.google.mlkit:text-recognition:16.0.0-beta6")
     api("com.google.mlkit:text-recognition-chinese:16.0.0-beta6")

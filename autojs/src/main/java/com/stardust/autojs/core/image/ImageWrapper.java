@@ -152,8 +152,19 @@ public class ImageWrapper {
 
     }
 
+    /**
+     * 是否已被回收。
+     *
+     * 回收后 mBitmap 与 mMat 均为 null，此时调用 getWidth/getBitmap 等都会抛
+     * IllegalStateException。调用方若持有可能被别处回收的 ImageWrapper，
+     * 应先用本方法判断而非依赖捕获异常（与 android.graphics.Bitmap.isRecycled 同义）。
+     */
+    public boolean isRecycled() {
+        return mBitmap == null && mMat == null;
+    }
+
     public void ensureNotRecycled() {
-        if (mBitmap == null && mMat == null)
+        if (isRecycled())
             throw new IllegalStateException("image has been recycled");
     }
 

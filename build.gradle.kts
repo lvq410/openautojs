@@ -16,7 +16,9 @@ buildscript {
         google()
         mavenCentral()
         maven("https://www.jitpack.io")
-        maven("https://120.25.164.233:8081/nexus/content/groups/public/")
+        //该私有 Nexus 已关停（实测连接被拒），留着会让每次缓存失效时 gradle 反复超时重试，
+        //本机实测一次构建因此空耗 8 分钟。故注掉，需要时再恢复。
+//        maven("https://120.25.164.233:8081/nexus/content/groups/public/")
         maven("https://maven.aliyun.com/repository/central")
         google { url = uri("https://maven.aliyun.com/repository/google") }
         mavenCentral { url = uri("https://maven.aliyun.com/repository/public") }
@@ -36,6 +38,7 @@ allprojects {
         google()
         mavenCentral()
         maven("https://www.jitpack.io")
+        //同上：该私有 Nexus 已关停，勿恢复
 //        maven("https://120.25.164.233:8081/nexus/content/groups/public/")
         maven("https://maven.aliyun.com/repository/central")
         google { url = uri("https://maven.aliyun.com/repository/google") }

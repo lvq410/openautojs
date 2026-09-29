@@ -87,12 +87,14 @@ public class Images {
         if (capturer != null) {
             //检测projection是否存活（MIUI上被其他app抢占后onStop不触发，需主动检测）
             if (capturer.checkAlive()) {
+                //方向可能变化，setOrientation 会重建 ImageReader/VirtualDisplay，
+                //旧帧尺寸与新方向不符，必须弃用，否则静止时会秒回一张方向相反的旧图
                 capturer.setOrientation(orientation);
+                discardPreCapture();
                 return Boolean.TRUE;
             }
             //已失效，清理后返回false，脚本会提示"没有授予屏幕截图权限"并退出，下次启动重新申请
-            capturer.release();
-            mScreenCaptureRequester.setScreenCapturer(null);
+            releaseCapturer(capturer);
             return Boolean.FALSE;
         }
         ScriptPromiseAdapter promiseAdapter = new ScriptPromiseAdapter();
@@ -124,15 +126,14 @@ public class Images {
 
         if (capture == null) {
             //没有新帧：分两种情况
-            if (mPreCaptureImage == null) {
-                //还没有任何缓存（授权后首帧未就绪）：短轮询等首帧，最多约2s
+            if (!hasUsablePreCapture()) {
+                //还没有任何可用缓存（授权后首帧未就绪，或上一帧已被脚本回收）：短轮询等首帧，最多约2s
                 for (int i = 0; i < 40 && capture == null; i++) {
                     try { Thread.sleep(50); } catch (InterruptedException e) { break; }
                     capture = capturer.capture();
                 }
                 if (capture == null) {
-                    capturer.release();
-                    mScreenCaptureRequester.setScreenCapturer(null);
+                    releaseCapturer(capturer);
                     throw new ScriptException("Screen capture timeout");
                 }
                 //拿到首帧，落到下方包装返回
@@ -147,8 +148,7 @@ public class Images {
                 Image blinkImg = capturer.probeLivenessByBlink();
                 if (blinkImg == null) {
                     //blink 判 DEAD：真失效/被抢占 → 清掉 capturer，脚本侧捕获后重新授权
-                    capturer.release();
-                    mScreenCaptureRequester.setScreenCapturer(null);
+                    releaseCapturer(capturer);
                     throw new ScriptException("Screen capture timeout");
                 }
                 //blink 判 ALIVE：活着（静止）→ 用 blink 强制产出的这帧作为本次结果，落到下方包装
@@ -158,7 +158,8 @@ public class Images {
 
         //取到有效帧（正常新帧 / 首帧 / blink 帧）：刷新存活时间并包装返回
         mLastAliveTime = System.currentTimeMillis();
-        if (capture == mPreCapture && mPreCaptureImage != null) {
+        //底层 Image 未换（capturer 复用了同一帧）且包装对象仍可用时，直接复用，避免重复转 Bitmap
+        if (capture == mPreCapture && hasUsablePreCapture()) {
             return mPreCaptureImage;
         }
         mPreCapture = capture;
@@ -167,6 +168,41 @@ public class Images {
         }
         mPreCaptureImage = ImageWrapper.ofImage(capture);
         return mPreCaptureImage;
+    }
+
+    /**
+     * 上一帧的包装对象是否仍可用。
+     *
+     * 不能只判 null：captureScreen 返回给脚本的就是 mPreCaptureImage 本身（非副本），
+     * 脚本若对它调了 recycle()（如 common.js 校验截图方向不符时会 recycle 后重取），
+     * 这里的字段就成了悬垂引用——仍非 null，但内部 bitmap/mat 已释放，
+     * 再返回给脚本会在其后续任意访问处抛 "image has been recycled"。
+     * 故判定为不可用时按「无缓存」处理，走正常取帧流程重新包装。
+     */
+    private boolean hasUsablePreCapture() {
+        return mPreCaptureImage != null && !mPreCaptureImage.isRecycled();
+    }
+
+    /**
+     * 释放 capturer 并清空与之绑定的上一帧缓存。
+     *
+     * 缓存必须一并清掉：mPreCapture 持有的 Image 属于已释放的 capturer，
+     * 其 ImageReader 关闭后该 Image 不再有效；若留着，下次 captureScreen 会把它
+     * 当作「可秒回的旧帧」返回。
+     */
+    private void releaseCapturer(ScreenCapturer capturer) {
+        capturer.release();
+        mScreenCaptureRequester.setScreenCapturer(null);
+        discardPreCapture();
+    }
+
+    /** 丢弃上一帧缓存。capturer 被释放或其方向/尺寸变更后，旧帧不再可用，必须清掉 */
+    private void discardPreCapture() {
+        mPreCapture = null;
+        if (mPreCaptureImage != null) {
+            mPreCaptureImage.recycle();
+            mPreCaptureImage = null;
+        }
     }
 
     @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
@@ -320,11 +356,7 @@ public class Images {
     public void releaseScreenCapturer() {
         // 不释放共享的 ScreenCapturer，因为其他引擎可能还在使用
         // 只清理本引擎的截图缓存
-        if (mPreCaptureImage != null) {
-            mPreCaptureImage.recycle();
-            mPreCaptureImage = null;
-        }
-        mPreCapture = null;
+        discardPreCapture();
     }
 
     public Point findImage(ImageWrapper image, ImageWrapper template) {
