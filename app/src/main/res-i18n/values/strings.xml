@@ -75,6 +75,10 @@
     <string name="text_floating_ball_action_menu">打开菜单</string>
     <string name="text_floating_ball_action_script_list">打开脚本清单</string>
     <string name="text_floating_ball_action_stop_all">停止所有脚本</string>
+    <string name="text_floating_ball_action_lock_screen">锁屏</string>
+    <string name="text_lock_screen_unsupported">当前系统版本不支持锁屏（需 Android 9 及以上）</string>
+    <string name="text_no_accessibility_permission_to_lock_screen">锁屏需要无障碍权限，请先开启</string>
+    <string name="text_screen_capture_held">持有截屏权限</string>
     <string name="text_error_report">错误报告</string>
     <string name="text_press_again_to_exit">再按一次退出程序</string>
     <string name="text_already_stop_n_scripts">已停止%d个正在运行的脚本</string>

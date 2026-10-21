@@ -1,8 +1,10 @@
 package org.autojs.autojs.ui.floating
 
+import android.accessibilityservice.AccessibilityService as AndroidAccessibilityService
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.text.TextUtils
 import android.view.ContextThemeWrapper
 import android.view.View
@@ -64,10 +66,11 @@ class CircularMenu(context: Context?) : Recorder.OnStateChangedListener, Capture
             } else if (mWindow?.isExpanded == true) {
                 mWindow?.collapse()
             } else {
-                //悬浮小球默认点击行为可在侧边栏配置：展开二级菜单（默认）/打开脚本清单/停止所有脚本
+                //悬浮小球默认点击行为可在侧边栏配置：展开二级菜单（默认）/打开脚本清单/停止所有脚本/锁屏
                 when (Pref.getFloatingBallDefaultAction()) {
                     Pref.FLOATING_BALL_ACTION_SCRIPT_LIST -> showScriptList()
                     Pref.FLOATING_BALL_ACTION_STOP_ALL -> stopAllScripts()
+                    Pref.FLOATING_BALL_ACTION_LOCK_SCREEN -> lockScreen()
                     else -> {
                         mCaptureDeferred = DeferredObject()
                         AutoJs.getInstance().layoutInspector.captureCurrentWindow()
@@ -240,6 +243,33 @@ class CircularMenu(context: Context?) : Recorder.OnStateChangedListener, Capture
     fun stopAllScripts() {
         mWindow?.collapse()
         AutoJs.getInstance().scriptEngineService.stopAllAndToast()
+    }
+
+    /**
+     * 锁屏。作为悬浮小球默认点击行为的一个可选项（侧边栏可配置）。
+     *
+     * 依赖无障碍服务的 GLOBAL_ACTION_LOCK_SCREEN，该全局动作自 Android 9(API 28) 起才有；
+     * 低版本无公开 API 可锁屏（DevicePolicyManager.lockNow 需要设备管理员权限），故直接提示不支持。
+     */
+    fun lockScreen() {
+        mWindow?.collapse()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            Toast.makeText(mContext, R.string.text_lock_screen_unsupported, Toast.LENGTH_SHORT)
+                .show()
+            return
+        }
+        val service = instance
+        if (service == null) {
+            //无障碍服务未启用时无法执行全局动作，引导用户去开启（与 inspectLayout 的处理一致）
+            Toast.makeText(
+                mContext,
+                R.string.text_no_accessibility_permission_to_lock_screen,
+                Toast.LENGTH_SHORT
+            ).show()
+            AccessibilityServiceTool.goToAccessibilitySetting()
+            return
+        }
+        service.performGlobalAction(AndroidAccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
     }
 
     override fun onCaptureAvailable(capture: NodeInfo?) {

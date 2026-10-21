@@ -109,6 +109,7 @@ fun DrawerPage(modifier: Modifier) {
             NotificationUsageRightSwitch()
             ForegroundServiceSwitch()
             UsageStatsPermissionSwitch()
+            ScreenCaptureHeldSwitch()
 
             Text(text = stringResource(id = R.string.text_script_record))
             FloatingWindowSwitch()
@@ -613,11 +614,12 @@ private fun FloatingWindowSwitch() {
 
 @Composable
 private fun FloatingBallDefaultActionItem() {
-    //悬浮小球默认点击行为的可切换配置：展开菜单（默认）/打开脚本清单/停止所有脚本
+    //悬浮小球默认点击行为的可切换配置：展开菜单（默认）/打开脚本清单/停止所有脚本/锁屏
     val actions = listOf(
         Pref.FLOATING_BALL_ACTION_MENU to stringResource(id = R.string.text_floating_ball_action_menu),
         Pref.FLOATING_BALL_ACTION_SCRIPT_LIST to stringResource(id = R.string.text_floating_ball_action_script_list),
-        Pref.FLOATING_BALL_ACTION_STOP_ALL to stringResource(id = R.string.text_floating_ball_action_stop_all)
+        Pref.FLOATING_BALL_ACTION_STOP_ALL to stringResource(id = R.string.text_floating_ball_action_stop_all),
+        Pref.FLOATING_BALL_ACTION_LOCK_SCREEN to stringResource(id = R.string.text_floating_ball_action_lock_screen)
     )
     var selected by remember { mutableStateOf(Pref.getFloatingBallDefaultAction()) }
     var expanded by remember { mutableStateOf(false) }
@@ -711,6 +713,62 @@ private fun UsageStatsPermissionSwitch() {
             },
         )
     }
+}
+
+/**
+ * 截屏权限持有状态 + 主动释放/申请。
+ *
+ * 背景：截屏权限（MediaProjection）一旦申请过，系统层面的投屏会话就会一直存活到进程结束，
+ * 状态栏持续显示投屏通知。部分 app 会据此判定「本机正在录屏」并拒绝提供服务
+ * （此前只能靠别的录屏 app 抢占 token 再停掉，来被动解除）。
+ *
+ * 开关两个方向都可用：
+ * - 关：停止 MediaProjection，真正交还权限，投屏通知消失
+ * - 开：重新申请。常态会弹系统授权框（需人工确认）；若已通过
+ *   `adb shell cmd appops set <包名> PROJECT_MEDIA allow` 放行，则不弹窗直接授予。
+ *   两种情形都在回调里按真实结果刷新开关——用户取消授权时开关会自动弹回「关」。
+ */
+@Composable
+private fun ScreenCaptureHeldSwitch() {
+    val requester = AutoJs.getInstance().screenCaptureRequester
+    var held by remember { mutableStateOf(requester.isScreenCaptureHeld) }
+    //授权弹窗是异步的，期间禁用开关避免重复触发（会重复弹窗）
+    var requesting by remember { mutableStateOf(false) }
+    //权限也可能被脚本改变（脚本调 requestScreenCapture / releaseScreenCapture），
+    //那条路径无法回调通知 UI，故抽屉可见期间定期对齐一次真实状态。
+    //申请中不要覆盖，否则会把等待回调的中间态冲掉
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1000)
+            if (!requesting) held = requester.isScreenCaptureHeld
+        }
+    }
+    SwitchItem(
+        icon = {
+            MyIcon(
+                painterResource(id = R.drawable.ic_record),
+                contentDescription = null
+            )
+        },
+        text = { Text(text = stringResource(id = R.string.text_screen_capture_held)) },
+        checked = held,
+        onCheckedChange = { checked ->
+            if (checked) {
+                if (!requesting) {
+                    requesting = true
+                    //不要在这里乐观地置 held=true：授权可能被用户取消，
+                    //一律等回调拿到真实结果再刷新，开关才不会和实际状态脱节
+                    requester.requestScreenCaptureForUi { granted ->
+                        held = granted
+                        requesting = false
+                    }
+                }
+            } else {
+                requester.releaseScreenCapture()
+                held = requester.isScreenCaptureHeld
+            }
+        }
+    )
 }
 
 @Composable

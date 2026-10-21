@@ -168,6 +168,25 @@ module.exports = function (runtime, scope) {
             return ResultAdapter.wait(result);
         }
 
+        /**
+         * 主动交还截屏权限：停止 MediaProjection，状态栏的投屏通知随之消失。
+         *
+         * 用于「部分 app 检测到本机正在录屏就拒绝服务」的场景——截屏权限一旦申请过，
+         * 会一直持有到进程结束（此前只能靠其他 app 抢占 token 来被动解除）。
+         * 调用后再次 requestScreenCapture 会重新弹授权（除非已用 appops 永久授权）。
+         *
+         * 注意：capturer 跨引擎共享，本调用影响所有正在运行的脚本。
+         * @returns {boolean} 调用前是否确实持有截屏权限
+         */
+        images.releaseScreenCapture = function () {
+            return javaImages.releaseScreenCapture();
+        }
+
+        /** 当前是否持有截屏权限（持有期间可被其他 app 探测到正在录屏） @returns {boolean} */
+        images.isScreenCaptureHeld = function () {
+            return javaImages.isScreenCaptureHeld();
+        }
+
         images.save = function (img, path, format, quality) {
             format = format || "png";
             quality = quality == undefined ? 100 : quality;
@@ -549,7 +568,7 @@ module.exports = function (runtime, scope) {
             javaImages.initOpenCvIfNeeded();
         }
 
-        scope.__asGlobal__(images, ['requestScreenCapture', 'captureScreen', 'findImage', 'findImageInRegion', 'findColor', 'findColorInRegion', 'findColorEquals', 'findMultiColors']);
+        scope.__asGlobal__(images, ['requestScreenCapture', 'releaseScreenCapture', 'isScreenCaptureHeld', 'captureScreen', 'findImage', 'findImageInRegion', 'findColor', 'findColorInRegion', 'findColorEquals', 'findMultiColors']);
 
         scope.colors = colors;
 

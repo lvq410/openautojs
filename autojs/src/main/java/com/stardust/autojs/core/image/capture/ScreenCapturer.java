@@ -55,7 +55,11 @@ public class ScreenCapturer {
         mMediaProjection.registerCallback(new MediaProjection.Callback() {
             @Override
             public void onStop() {
+                //token 被系统或用户（通知栏「停止投屏」）收回。除了置不可用，还要把
+                //VirtualDisplay/ImageReader 一并拆掉——否则它们只能等 GC finalize，
+                //期间仍占着显示资源。对齐 AutoX.js 的处理。
                 mAvailable = false;
+                releaseDisplayResources();
             }
         }, new Handler(Looper.getMainLooper()));
 
@@ -125,6 +129,8 @@ public class ScreenCapturer {
      * live projection镜像屏幕会持续产帧，dead的排空后就没有新帧了。
      */
     public synchronized boolean checkAlive() {
+        //已释放（release 后 mImageReader 置 null）直接判死，不靠下面 catch NPE 兜底
+        if (!mAvailable || mImageReader == null) return false;
         try {
             //排空缓冲区里的旧帧（ImageReader最多3帧）
             for (int i = 0; i < 5; i++) {
@@ -160,6 +166,8 @@ public class ScreenCapturer {
      * @return 非 null=闪后取到的新帧(存活，可直接作为本次截图返回)；null=闪后无帧/异常(已失效)
      */
     public synchronized Image probeLivenessByBlink() {
+        //已释放（release 后 mImageReader 置 null）直接判失效，说明同 checkAlive
+        if (!mAvailable || mImageReader == null) return null;
         try {
             //先排空缓冲区旧帧，确保后面拿到的是"闪"之后源屏幕重合成的新帧
             for (int i = 0; i < 5; i++) {
@@ -184,8 +192,31 @@ public class ScreenCapturer {
         }
     }
 
+    /**
+     * 完整释放：先拆显示资源，再**停止 MediaProjection**。
+     *
+     * 关键：必须调 mMediaProjection.stop()，否则系统层面的投屏会话一直存活到进程结束——
+     * 状态栏的投屏通知不消失，其他 app 也能据此判定"本机正在录屏"而拒绝提供服务
+     * （部分 app 会检测录屏）。此前本方法只拆 VirtualDisplay/ImageReader，
+     * 系统权限从未真正交还，只能靠别的 app 抢占 token 来被动解除。
+     */
     public synchronized void release() {
         mAvailable = false;
+        releaseDisplayResources();
+        if (mMediaProjection != null) {
+            //stop() 会触发上面注册的 onStop 回调，此时显示资源已拆完、mAvailable 已置 false，
+            //回调内再走一遍 releaseDisplayResources 也是幂等的（各字段均已 null）
+            mMediaProjection.stop();
+        }
+    }
+
+    /**
+     * 只拆与本次投屏绑定的显示资源（VirtualDisplay / ImageReader / 缓存帧），
+     * 不动 MediaProjection 本身。供 {@link #release()} 与 onStop 回调共用。
+     *
+     * 幂等：各字段拆完置 null，重复调用无副作用。
+     */
+    private synchronized void releaseDisplayResources() {
         if (mVirtualDisplay != null) {
             mVirtualDisplay.release();
             mVirtualDisplay = null;

@@ -5,6 +5,8 @@ import android.app.Application;
 import android.content.Context;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
@@ -17,6 +19,7 @@ import com.stardust.autojs.core.console.ConsoleImpl;
 import com.stardust.autojs.core.console.GlobalConsole;
 import com.stardust.autojs.core.image.capture.ScreenCaptureRequestActivity;
 import com.stardust.autojs.core.image.capture.ScreenCaptureRequester;
+import com.stardust.autojs.core.image.capture.ScreenCapturer;
 import com.stardust.autojs.core.record.accessibility.AccessibilityActionRecorder;
 import com.stardust.autojs.core.util.Shell;
 import com.stardust.autojs.engine.LoopBasedJavaScriptEngine;
@@ -203,6 +206,15 @@ public abstract class AutoJs {
         return mActivityInfoProvider;
     }
 
+    /**
+     * 共享的截屏权限请求器（跨所有脚本引擎同一实例）。
+     * 暴露出来供 UI 层查询是否持有截屏权限、以及主动释放
+     * （{@link ScreenCaptureRequester#releaseScreenCapture()}）。
+     */
+    public ScreenCaptureRequester getScreenCaptureRequester() {
+        return mScreenCaptureRequester;
+    }
+
 
     public abstract void waitForAccessibilityServiceEnabled();
 
@@ -266,6 +278,41 @@ public abstract class AutoJs {
             } else {
                 ScreenCaptureRequestActivity.request(mContext, mCallback);
             }
+        }
+
+        /**
+         * 供 UI 层申请截屏权限（侧边栏开关用）。不依赖 ScriptRuntime，故用主线程 Handler。
+         *
+         * 两种情形统一通过 callback 返回结果，调用方据此刷新开关状态：
+         * - 常态：弹系统授权框，用户确认/取消后回调
+         * - adb 放行过 PROJECT_MEDIA（appops allow）时：不弹窗直接授予，回调几乎立即触发
+         */
+        @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+        @Override
+        public void requestScreenCaptureForUi(RequestResultCallback callback) {
+            //已持有则不重复申请（重复申请会再弹一次窗）
+            if (isScreenCaptureHeld()) {
+                if (callback != null) callback.onResult(true);
+                return;
+            }
+            setOnActivityResultCallback((result, data) -> {
+                boolean granted = false;
+                if (result == Activity.RESULT_OK && data != null) {
+                    try {
+                        //方向用 AUTO：跟随当前屏幕方向，与脚本侧默认行为一致
+                        setScreenCapturer(new ScreenCapturer(mContext, data,
+                                ScreenCapturer.ORIENTATION_AUTO,
+                                ScreenMetrics.getDeviceScreenDensity(),
+                                new Handler(Looper.getMainLooper())));
+                        granted = true;
+                    } catch (Exception e) {
+                        //构造失败（如 token 已失效）时按未授权处理，不让 UI 停在错误状态
+                        granted = false;
+                    }
+                }
+                if (callback != null) callback.onResult(granted);
+            });
+            request();
         }
     }
 }

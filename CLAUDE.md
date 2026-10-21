@@ -212,6 +212,44 @@ applicationId 和源码包路径是独立的，改包名只需改 `applicationId
   注意 `deviceScreenWidth/Height` 修复后仍存横屏值（2772/1280）——修复不是靠「存对值」，而是靠归一化让结果与存值方向无关，因此也顺带免疫了「转屏后不刷新」这个隐患
 - **说明**: 与修复记录 #15 的悬浮窗坐标系问题**无关**，是独立的既有 bug，只因排查 #15 时 force-stop 了 app、恰好在横屏下重启才暴露出来。影响范围不限于王者脚本：任何方向与 app 初始化方向相反的截图请求都会中招
 
+### 17. 截屏权限（MediaProjection）从未真正释放
+- **现象**: app 一旦申请过截屏权限，状态栏的投屏通知就一直在，直到进程被杀。部分会检测录屏的 app 据此拒绝提供服务；此前只能靠「用系统录屏抢一次权限再停掉」来被动解除
+- **根因**: `ScreenCapturer.release()` 只拆了 `VirtualDisplay`/`ImageReader`/缓存帧，**`mMediaProjection.stop()` 在全仓从未被调用过**。对比 AutoX.js 的 `ScreenCaptureManager.recycle()`（反编译 `autoxjs-decompiled/.../ScreenCaptureManager.java:74-85`）是有 `mediaProjection.stop()` 的，本 fork 这一步丢了。adb 实测佐证：`dumpsys media_projection` 持续显示 `(com.lvt4j.ajs, uid=10454): TYPE_SCREEN_CAPTURE`
+  顺带两个相关缺陷：`MediaProjection.Callback.onStop()` 只置 `mAvailable=false` 不拆显示资源（泄漏到 GC finalize）；`AbstractScreenCaptureRequester.recycle()` 只清 `mResult`/`mCallback`、完全不碰 capturer
+- **修复**:
+  - `ScreenCapturer.release()` 补 `mMediaProjection.stop()`，并把显示资源的拆除抽成 `releaseDisplayResources()`（幂等）供 `release()` 与 `onStop` 回调共用——**回调里不能再调 `stop()`**，那是 stop 触发的回调，会重入
+  - `release()` 后 `mImageReader` 为 null，`checkAlive()`/`probeLivenessByBlink()` 补显式 null 判断（原先靠 catch NPE 吞成 false/null，行为侥幸正确但不该靠异常控流）
+  - `ScreenCaptureRequester` 新增 `releaseScreenCapture()` / `isScreenCaptureHeld()` / `requestScreenCaptureForUi(callback)`
+  - `Images` 新增 `releaseScreenCapture()` / `isScreenCaptureHeld()`，JS 侧 `images.releaseScreenCapture()` / `images.isScreenCaptureHeld()`（已加入 `__asGlobal__`）
+  - 主界面侧边栏「服务」组新增**持有截屏权限**开关（`DrawerPage.ScreenCaptureHeldSwitch`）
+- **⚠ UI 设计要点**:
+  - 开关**两个方向都要能用**。最初只实现了「关」（理由是「开需要系统弹窗、不适合在设置项发起」），结果关掉后就再也打不开——这是错的，一个点了没反应的开关本身就是坏设计
+  - **不要在点击时乐观置位**。授权弹窗是异步的且可能被用户取消，必须等 `requestScreenCaptureForUi` 回调拿到真实结果再刷新；否则取消授权后开关显示「开」而实际无权限
+  - 申请期间要禁止重复点击（否则重复弹窗）；另外脚本也可能改变权限状态（脚本调 `requestScreenCapture`/`releaseScreenCapture`），那条路径无法回调通知 UI，故用 `LaunchedEffect` 每秒对齐一次真实状态（申请中不覆盖）
+  - `requestScreenCaptureForUi` 实现在 `AutoJs.ScreenCaptureRequesterImpl`（需要 `mContext` 建 `ScreenCapturer`），基类给个「直接回调当前状态」的默认实现。回调用主线程 Handler，不依赖 `ScriptRuntime` 的 servantLooper
+- **已知限制**: `isScreenCaptureHeld()` 只判 `mScreenCapturer != null`，**无法感知权限被其他 app 抢走**（MIUI 抢占不触发 `onStop`，详见 #8/#13）。此时开关仍显示「开」，要到下次截图时才由 blink 探测（#13）判出失效。想让 UI 实时准确就得定期 blink，代价是每次约 100ms + 挪动悬浮窗，不值得，故不做
+- **文件**: `autojs/.../core/image/capture/{ScreenCapturer,ScreenCaptureRequester}.java`、`autojs/.../AutoJs.java`、`autojs/.../runtime/api/Images.java`、`autojs/src/main/assets/modules/__images__.js`、`app/.../ui/main/drawer/DrawerPage.kt`、`app/src/main/res-i18n/values/strings.xml`
+- **验证**: 释放前 `isScreenCaptureHeld=true` 且能截图 1280x2772；释放后 `isScreenCaptureHeld=false`、`captureScreen()` 抛 `SecurityException: No screen capture permission`（修复前此处仍能截图成功）。侧边栏开关的「静默授予」与「弹窗授权/取消」三条路径均已实机验证
+
+### 免授权弹窗：adb 放行 PROJECT_MEDIA
+申请截屏权限默认每次都弹系统授权框（红米还需手选「共享整个屏幕」再确认，脚本侧 `common.js` 为此专门起了个自动点击线程）。用 adb 放行后可静默授予：
+
+```bash
+adb shell cmd appops set com.lvt4j.ajs PROJECT_MEDIA allow
+```
+
+实测：放行后 `requestScreenCapture()` **149ms** 返回、全程无弹窗（放行前要数秒 + 人工/自动点击）。恢复默认用 `... PROJECT_MEDIA default`。
+
+注意：
+- 这是**开发者用 adb 设的权限，普通用户不会有**，所以代码逻辑不能把它当前提（UI 必须同时兼容弹窗路径）
+- 重启手机后保留；`adb install -r` 覆盖安装保留；但卸载重装会丢，**换设备需重新执行一次**
+- 配合上面 #17 的主动释放，可在「要用截图」与「不被探测到录屏」之间毫秒级来回切换
+
+### 悬浮小球默认点击行为：锁屏
+`Pref.FLOATING_BALL_ACTION_LOCK_SCREEN`(=3)，走无障碍 `GLOBAL_ACTION_LOCK_SCREEN`（API 28+）。实现在 `CircularMenu.lockScreen()`，两个边界都有提示：系统版本低于 Android 9、或无障碍未启用（后者引导去设置页）。
+
+注意 `CircularMenu.kt` 里 `AccessibilityService` 这个简名已被 `com.stardust.view.accessibility.AccessibilityService` 占用，系统类需用 import alias（`import android.accessibilityservice.AccessibilityService as AndroidAccessibilityService`）——这是 CLAUDE.md「除非类名冲突否则不用全类路径」的那个例外。
+
 ## 日志文件位置速查
 
 排查问题时优先看这些落盘日志（logcat 只在连着 adb 时可见、且不保留历史）：

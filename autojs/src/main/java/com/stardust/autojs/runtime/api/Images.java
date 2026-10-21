@@ -359,6 +359,31 @@ public class Images {
         discardPreCapture();
     }
 
+    /**
+     * 主动交还截屏权限（对应 JS 的 images.releaseScreenCapture()）。
+     *
+     * 与 {@link #releaseScreenCapturer()} 的区别：后者只清本引擎的帧缓存、保留共享 capturer；
+     * 本方法会停止 MediaProjection，系统层面的投屏会话结束、状态栏投屏通知消失。
+     *
+     * 用途：部分 app 会检测「本机是否正在录屏」并据此拒绝服务，而截屏权限一旦申请过就会
+     * 持续持有到进程结束。脚本在不需要截图时可调用本方法交还，之后再次 requestScreenCapture
+     * 会重新弹授权（除非已通过 appops 永久授权）。
+     *
+     * 注意影响所有脚本：capturer 是跨引擎共享的。
+     *
+     * @return 调用前是否确实持有截屏权限
+     */
+    public boolean releaseScreenCapture() {
+        //本引擎的帧缓存也要清：它引用的 Image 属于即将被释放的 capturer
+        discardPreCapture();
+        return mScreenCaptureRequester.releaseScreenCapture();
+    }
+
+    /** 当前是否持有截屏权限（持有期间系统显示投屏通知、可被其他 app 探测到） */
+    public boolean isScreenCaptureHeld() {
+        return mScreenCaptureRequester.isScreenCaptureHeld();
+    }
+
     public Point findImage(ImageWrapper image, ImageWrapper template) {
         return findImage(image, template, 0.9f, null);
     }

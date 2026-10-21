@@ -149,10 +149,11 @@ public class Pref {
         def().edit().putBoolean(KEY_FLOATING_MENU_SHOWN, checked).apply();
     }
 
-    //悬浮小球默认点击行为：0=展开二级菜单（默认），1=打开脚本清单，2=停止所有脚本
+    //悬浮小球默认点击行为：0=展开二级菜单（默认），1=打开脚本清单，2=停止所有脚本，3=锁屏
     public static final int FLOATING_BALL_ACTION_MENU = 0;
     public static final int FLOATING_BALL_ACTION_SCRIPT_LIST = 1;
     public static final int FLOATING_BALL_ACTION_STOP_ALL = 2;
+    public static final int FLOATING_BALL_ACTION_LOCK_SCREEN = 3;
 
     public static int getFloatingBallDefaultAction() {
         return def().getInt(KEY_FLOATING_BALL_ACTION, FLOATING_BALL_ACTION_MENU);
